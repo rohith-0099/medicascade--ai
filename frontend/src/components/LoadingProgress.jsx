@@ -1,123 +1,158 @@
 export default function LoadingProgress({ progress, currentLayer }) {
+    const circumference = 2 * Math.PI * 80
+
     return (
-        <div className="card-glass max-w-2xl mx-auto">
-            <div className="text-center mb-8">
-                <div className="inline-block relative">
-                    <div className="w-24 h-24 relative">
-                        {/* Spinning loader */}
-                        <svg className="animate-spin" viewBox="0 0 100 100">
-                            <circle
-                                cx="50"
-                                cy="50"
-                                r="45"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="8"
-                                strokeLinecap="round"
-                                className="text-slate-700"
-                            />
-                            <circle
-                                cx="50"
-                                cy="50"
-                                r="45"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="8"
-                                strokeLinecap="round"
-                                strokeDasharray="283"
-                                strokeDashoffset={283 - (283 * progress) / 100}
-                                className="text-primary-500"
-                                style={{ transition: 'stroke-dashoffset 0.5s ease' }}
-                            />
-                        </svg>
-                        {/* Percentage in center */}
-                        <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-2xl font-bold">{progress}%</span>
-                        </div>
+        <div className="card-premium max-w-3xl mx-auto">
+            <div className="text-center mb-10">
+                {/* Animated Progress Circle */}
+                <div className="relative inline-block mb-6">
+                    <svg className="w-48 h-48" viewBox="0 0 200 200">
+                        {/* Background circle */}
+                        <circle
+                            cx="100"
+                            cy="100"
+                            r="80"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="12"
+                            className="text-slate-200"
+                        />
+                        {/* Progress circle */}
+                        <circle
+                            cx="100"
+                            cy="100"
+                            r="80"
+                            fill="none"
+                            stroke="url(#gradient)"
+                            strokeWidth="12"
+                            strokeLinecap="round"
+                            strokeDasharray={circumference}
+                            strokeDashoffset={circumference - (circumference * progress) / 100}
+                            className="transition-all duration-500 ease-out transform -rotate-90"
+                            style={{ transformOrigin: '50% 50%' }}
+                        />
+                        {/* Gradient definition */}
+                        <defs>
+                            <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stopColor="#3b82f6" />
+                                <stop offset="100%" stopColor="#6366f1" />
+                            </linearGradient>
+                        </defs>
+                        {/* Center percentage */}
+                        <text
+                            x="100"
+                            y="100"
+                            textAnchor="middle"
+                            dy=".3em"
+                            className="text-5xl font-bold fill-slate-700"
+                        >
+                            {progress}%
+                        </text>
+                    </svg>
+
+                    {/* Pulse effect */}
+                    <div className="absolute inset-0 -z-10">
+                        <div className="w-48 h-48 bg-blue-400 rounded-full opacity-20 animate-ping"></div>
                     </div>
                 </div>
 
-                <h2 className="text-2xl font-bold mt-6 mb-2">Processing Patient Data</h2>
-                <p className="text-slate-300 mb-6">{currentLayer}</p>
+                <h2 className="text-3xl font-bold text-slate-800 mb-3">Analyzing Patient Data</h2>
+                <p className="text-lg text-blue-600 font-medium mb-2">{currentLayer}</p>
+                <p className="text-slate-500">Processing through multi-layer AI diagnostic system</p>
             </div>
 
-            {/* Progress Steps */}
-            <div className="space-y-4">
-                <ProgressStep
-                    label="Layer 0: PDF Processing"
-                    description="Extracting text, images, and structured data"
-                    isComplete={progress > 25}
-                    isActive={progress <= 25}
+            {/* Processing Steps */}
+            <div className="space-y-5">
+                <ProcessStep
+                    number="1"
+                    label="Layer 0: Data Extraction"
+                    description="Extracting text, tables, images, and structured data from PDF"
+                    isComplete={progress > 20}
+                    isActive={progress <= 20}
                 />
-                <ProgressStep
+                <ProcessStep
+                    number="2"
                     label="Layer 1: AI Specialists"
-                    description="Running 5 specialist models in parallel"
-                    isComplete={progress > 50}
-                    isActive={progress > 25 && progress <= 50}
+                    description="Running 5 specialist models in parallel (symptoms, labs, scans, notes, risk)"
+                    isComplete={progress > 40}
+                    isActive={progress > 20 && progress <= 40}
                 />
-                <ProgressStep
-                    label="Layer 2: Validation"
-                    description="Cross-validating and resolving conflicts"
-                    isComplete={progress > 75}
-                    isActive={progress > 50 && progress <= 75}
+                <ProcessStep
+                    number="3"
+                    label="Layer 2: Cross-Validation"
+                    description="Major AI validator resolving conflicts and anomaly detection"
+                    isComplete={progress > 65}
+                    isActive={progress > 40 && progress <= 65}
                 />
-                <ProgressStep
+                <ProcessStep
+                    number="4"
                     label="Layer 3: Explanation"
-                    description="Generating annotated report with evidence"
-                    isComplete={progress > 90}
-                    isActive={progress > 75 && progress <= 90}
+                    description="Generating annotated report with visual evidence markers"
+                    isComplete={progress > 85}
+                    isActive={progress > 65 && progress <= 85}
                 />
             </div>
 
-            <div className="mt-8 bg-slate-700/30 rounded-lg p-4">
-                <div className="flex items-start">
-                    <svg
-                        className="w-5 h-5 text-primary-400 mr-3 flex-shrink-0 mt-0.5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                    >
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                    </svg>
-                    <p className="text-sm text-slate-300">
-                        This may take 30-60 seconds depending on the complexity of the patient data and AI model availability.
-                    </p>
+            {/* Info Box */}
+            <div className="mt-10 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100">
+                <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0">
+                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                            <svg
+                                className="w-6 h-6 text-blue-600"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                />
+                            </svg>
+                        </div>
+                    </div>
+                    <div className="flex-1">
+                        <h4 className="font-semibold text-slate-700 mb-2">Deep Analysis in Progress</h4>
+                        <p className="text-sm text-slate-600 leading-relaxed">
+                            Our advanced AI system is processing your data through multiple validation layers.
+                            This comprehensive analysis typically takes 30-60 seconds to ensure maximum accuracy.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
     )
 }
 
-function ProgressStep({ label, description, isComplete, isActive }) {
+function ProcessStep({ number, label, description, isComplete, isActive }) {
     return (
-        <div className="flex items-start">
-            <div className="flex-shrink-0 mr-4">
+        <div className="flex items-start gap-4 group">
+            <div className="flex-shrink-0">
                 {isComplete ? (
-                    <div className="w-8 h-8 rounded-full bg-success-500 flex items-center justify-center">
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shadow-lg">
+                        <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                         </svg>
                     </div>
                 ) : isActive ? (
-                    <div className="w-8 h-8 rounded-full bg-primary-500 animate-pulse-slow flex items-center justify-center">
-                        <div className="w-3 h-3 rounded-full bg-white"></div>
+                    <div className="relative w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center shadow-lg">
+                        <div className="absolute inset-0 rounded-xl bg-blue-400 animate-ping opacity-50"></div>
+                        <span className="relative text-white font-bold text-lg">{number}</span>
                     </div>
                 ) : (
-                    <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
-                        <div className="w-3 h-3 rounded-full bg-slate-600"></div>
+                    <div className="w-12 h-12 rounded-xl bg-slate-200 flex items-center justify-center">
+                        <span className="text-slate-500 font-bold text-lg">{number}</span>
                     </div>
                 )}
             </div>
-            <div className="flex-1">
-                <h3 className={`font-semibold ${isActive ? 'text-primary-400' : isComplete ? 'text-success-500' : 'text-slate-400'}`}>
+            <div className="flex-1 pt-1">
+                <h3 className={`font-semibold text-lg mb-1 transition-colors ${isActive ? 'text-blue-600' : isComplete ? 'text-emerald-600' : 'text-slate-400'
+                    }`}>
                     {label}
                 </h3>
-                <p className="text-sm text-slate-500 mt-1">{description}</p>
+                <p className="text-sm text-slate-500 leading-relaxed">{description}</p>
             </div>
         </div>
     )
