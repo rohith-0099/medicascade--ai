@@ -93,15 +93,14 @@ This is where we solve the "Black Box" problem.
 ## 📸 Screenshots & Demos
 
 ### 1. The Dashboard
-*(Place screenshot of frontend main page here)*
+![Dashboard Screenshot](assets/image/dashboard_screenshot.png)
 
 ### 2. Visual XAI: Tumor Detection
 The system automatically highlights the tumor region with a **Red Circle** and provides an ML Confidence Score.
-*(Place screenshot of marked brain scan here)*
+![Tumor Detection Example](assets/image/tumor_detection.png)
 
-### 3. The Explainable Report
-Critical values (BP, Glucose) are circled in red to grab the physician's attention immediately.
-*(Place screenshot of PDF report with red circles here)*
+### 3. System Architecture
+![MediCascade Architecture](assets/image/architecture_diagram.png)
 
 ---
 
