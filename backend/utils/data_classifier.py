@@ -97,40 +97,64 @@ class DataClassifier:
         if 'allerg' in section_lower:
             return "allergies"
         
-        try:
-            category = self.ollama.classify_text(section, self.CATEGORIES)
-            if category in self.CATEGORIES:
-                return category
-        except Exception as e:
-            print(f"Ollama classification error: {e}")
+        # Removed slow Ollama fallback
+        # try:
+        #     category = self.ollama.classify_text(section, self.CATEGORIES)
+        #     if category in self.CATEGORIES:
+        #         return category
+        # except Exception as e:
+        #     print(f"Ollama classification error: {e}")
         
         return "other"
     
     def extract_patient_info(self, demographics_text: str) -> Dict[str, Any]:
+        """Fast Regex-based extraction for patient info"""
+        info = {}
+        text = demographics_text.lower()
         
-        fields = ["name", "age", "gender", "date_of_birth", "patient_id", "address", "phone"]
-        
-        try:
-            extracted = self.ollama.extract_structured_data(demographics_text, fields)
-            return extracted
-        except Exception as e:
-            print(f"Patient info extraction error: {e}")
-            return {}
+        # Name
+        name_match = re.search(r'(?:name|patient|patient name)[:\s]+([a-z\s]+)', text)
+        if name_match:
+            info['name'] = name_match.group(1).strip().title()
+            
+        # Age
+        age_match = re.search(r'(?:age|years|yrs)[:\s]+(\d{1,3})', text)
+        if age_match:
+            info['age'] = age_match.group(1)
+            
+        # Gender
+        gender_match = re.search(r'(?:gender|sex)[:\s]+([a-z]+)', text)
+        if gender_match:
+            info['gender'] = gender_match.group(1).strip().title()
+            
+        # ID
+        id_match = re.search(r'(?:id|mrn|ref)[:\s]+([a-z0-9\-\.]+)', text)
+        if id_match:
+            info['patient_id'] = id_match.group(1).upper()
+            
+        return info
     
     def extract_lab_values(self, lab_text: str) -> Dict[str, Any]:
+        """Fast Regex-based extraction for common lab values"""
+        labs = {}
+        text = lab_text.lower()
         
-        fields = [
-            "hemoglobin", "wbc", "rbc", "platelets",
-            "glucose", "cholesterol", "triglycerides",
-            "sodium", "potassium", "creatinine",
-            "alt", "ast", "bilirubin"
-        ]
+        patterns = {
+            'hemoglobin': r'hemoglobin[:\s]+(\d+\.?\d*)',
+            'wbc': r'wbc[:\s]+(\d+\.?\d*)',
+            'glucose': r'glucose[:\s]+(\d+)',
+            'creatinine': r'creatinine[:\s]+(\d+\.?\d*)',
+            'cholesterol': r'cholesterol[:\s]+(\d+)',
+            'platelets': r'platelets[:\s]+(\d+)',
+            'potassium': r'potassium[:\s]+(\d+\.?\d*)',
+            'sodium': r'sodium[:\s]+(\d+)'
+        }
         
-        try:
-            extracted = self.ollama.extract_structured_data(lab_text, fields)
-            return extracted
-        except Exception as e:
-            print(f"Lab values extraction error: {e}")
-            return {}
+        for name, pattern in patterns.items():
+            match = re.search(pattern, text)
+            if match:
+                labs[name] = match.group(1)
+                
+        return labs
 
 data_classifier = DataClassifier()

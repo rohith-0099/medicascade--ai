@@ -177,16 +177,55 @@ class Layer3Annotator:
                 alt_list.append(f"• {s['diagnosis']} - {s['confidence']:.0%} probability")
             alternatives_text = "\n".join(alt_list)
         
-        prompt = f
+        # Enhanced prompt for Gemini
+        prompt = f"""You are a medical AI writing a comprehensive diagnostic report for physicians. Analyze this diagnosis and explain it in detail.
+
+SPECIFIC MEDICAL VALUES FOUND:
+{values_section}
+
+ALL PATIENT DATA ANALYZED:
+{findings_text}
+
+AI DIAGNOSIS: {diagnosis.primary_diagnosis}
+AI CONFIDENCE: {diagnosis.confidence:.0%}
+CROSS-VALIDATION: {diagnosis.cross_validation_score:.0%} agreement across 5 AI models
+
+ALTERNATIVE DIAGNOSES CONSIDERED:
+{alternatives_text}
+
+Write a COMPREHENSIVE medical report with these sections:
+
+## CLINICAL FINDINGS & KEY VALUES
+[List the SPECIFIC medical values found (BP, glucose, temp, etc.) and summarize other findings. Be precise - cite exact numbers from the Patient Data.]
+
+## DISEASE EXPLANATION
+[Explain what {diagnosis.primary_diagnosis} is - definition, pathophysiology, typical presentation, clinical significance]
+
+## CORRELATION WITH PATIENT DATA
+[For EACH specific value found, explain how it supports or relates to {diagnosis.primary_diagnosis}. Example: "Blood Pressure of 190/110 mmHg indicates severe hypertension, a known risk factor for stroke." Be very specific - mention each value by name and number.]
+
+## DIAGNOSTIC REASONING
+[Explain the clinical logic: Given these specific findings, why is {diagnosis.primary_diagnosis} the most likely diagnosis? How do the findings fit the diagnostic criteria?]
+
+## DIFFERENTIAL DIAGNOSIS
+[Why were alternatives ruled out? What specific findings exclude other conditions?]
+
+## CLINICAL RECOMMENDATIONS
+[Based on this diagnosis and the specific values found, what immediate actions are needed? What tests? What treatments? Be specific and actionable.]
+
+## CONFIDENCE & LIMITATIONS
+[Why {diagnosis.confidence:.0%} confidence? What specific findings support this? What data is missing? What uncertainties remain?]
+
+Use professional medical terminology. Be thorough and specific. ALWAYS cite exact values when discussing findings. Target audience is a doctor. Maximum 1000 words."""
 
         try:
             from utils.gemini_client import gemini_client
             print("[Layer 3] Attempting to generate explanation with Gemini 1.5 Flash...")
             
-            response = gemini_client.generate_medical_explanation(prompt, max_tokens=900)
+            response = gemini_client.generate_medical_explanation(prompt, max_tokens=1500)
             
             if response and len(response.strip()) > 200:
-                formatted = f
+                formatted = response
                 
                 print(f"[Layer 3] Generated Gemini-powered clinical explanation with specific values")
                 return formatted
@@ -198,7 +237,7 @@ class Layer3Annotator:
             response = self.ollama.generate(prompt, temperature=0.3, max_tokens=800)
             
             if response and len(response.strip()) > 200:
-                formatted = f
+                formatted = response
                 
                 print(f"[Layer 3] Generated Ollama explanation with values")
                 return formatted
@@ -224,21 +263,21 @@ class Layer3Annotator:
         else:
             alternatives = "• No significant alternative diagnoses identified"
         
-        return f
+        return f"**Clinical Assessment:**\\n{diagnosis.primary_diagnosis} is indicated by:\\n{findings_section}\\n\\n**Key Data:**\\n{values_display}\\n\\n**Differential:**\\n{alternatives}"
 
-        prompt = f
+        prompt = f"Explain the medical diagnosis of {diagnosis.primary_diagnosis} given these symptoms:\\n{findings_section}"
 
         try:
             response = self.ollama.generate(prompt, temperature=0.3, max_tokens=300)
             
             if response and len(response.strip()) > 50:
-                formatted = f
+                formatted = response
                 print(f"[Layer 3] Generated disease explanation for: {diagnosis}")
                 return formatted
         except Exception as e:
             print(f"[Layer 3] Disease explanation error: {e}")
         
-        return f
+        return f"Diagnosis: {diagnosis.primary_diagnosis}. Evidence: {findings_section}"
     
     def _generate_xai_explanation(self, diagnosis: FinalDiagnosis, evidence: List[Evidence]) -> str:
 

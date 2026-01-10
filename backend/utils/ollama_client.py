@@ -86,7 +86,7 @@ class OllamaClient:
         if categories is None:
             categories = ["symptoms", "lab_results", "clinical_notes", "patient_info"]
         
-        prompt = f
+        prompt = f"Classify the following text into one of these categories: {', '.join(categories)}. Return only the category name.\\n\\nText: {text[:500]}"
         
         try:
             response = self.generate(prompt, temperature=0.1, max_tokens=10)
@@ -103,7 +103,7 @@ class OllamaClient:
     
     def extract_structured_data(self, text: str, data_type: str = "patient") -> dict:
         
-        prompt = f
+        prompt = f"Extract {data_type} information from the text below as valid JSON. Return ONLY JSON.\\n\\nText: {text[:1000]}"
         
         try:
             response = self.generate(prompt, temperature=0.2, max_tokens=100)
