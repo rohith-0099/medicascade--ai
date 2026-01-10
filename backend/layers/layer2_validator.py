@@ -1,8 +1,4 @@
-"""
-Layer 2: Major AI Validator - SPEED OPTIMIZED
-Cross-validates Layer 1 opinions with fast Ollama timeout
-FALLS BACK to accurate rule-based logic on timeout
-"""
+
 from utils.ollama_client import ollama_client
 from schemas import Layer1Output, FinalDiagnosis, SpecialistOpinion
 from sklearn.ensemble import IsolationForest
@@ -11,30 +7,25 @@ import time
 from typing import List, Dict, Any
 import json
 
-
 class Layer2Validator:
-    """Layer 2: Fast validation with smart fallbacks"""
-    
+
     def __init__(self):
         self.ollama = ollama_client
     
     def process(self, layer1_output: Layer1Output) -> FinalDiagnosis:
-        """Validate Layer 1 opinions - tries Ollama, falls back instantly"""
+        
         print("[Layer 2] Validating specialist opinions...")
         start_time = time.time()
         
         opinions = layer1_output.specialist_opinions
         
-        # Fast rule-based cross-validation
         cross_val_score = self._cross_validate(opinions)
         print(f"[Layer 2] Cross-validation score: {cross_val_score:.2f}")
         
-        # Fast anomaly detection
         anomaly_detected, anomaly_desc = self._detect_anomalies(opinions)
         if anomaly_detected:
             print(f"[Layer 2] Anomaly detected: {anomaly_desc}")
         
-        # Try Ollama with 10s timeout, instant fallback
         final_diagnosis = self._make_decision_fast(opinions, cross_val_score, anomaly_detected)
         
         result = FinalDiagnosis(
@@ -54,7 +45,7 @@ class Layer2Validator:
         return result
     
     def _cross_validate(self, opinions: List[SpecialistOpinion]) -> float:
-        """Fast cross-validation score"""
+        
         if not opinions:
             return 0.0
         
@@ -62,7 +53,6 @@ class Layer2Validator:
         if len(valid_opinions) < 2:
             return 0.5
         
-        # Count condition overlaps
         all_conditions = []
         for op in valid_opinions:
             all_conditions.extend([c.lower() for c in op.detected_conditions])
@@ -70,7 +60,6 @@ class Layer2Validator:
         if not all_conditions:
             return 0.5
         
-        # Agreement score based on overlaps
         unique_conditions = set(all_conditions)
         overlap_score = 0.0
         
@@ -83,7 +72,7 @@ class Layer2Validator:
         return min((overlap_score + avg_confidence) / 2, 1.0)
     
     def _detect_anomalies(self, opinions: List[SpecialistOpinion]) -> tuple:
-        """Fast anomaly detection"""
+        
         try:
             features = [[op.confidence, len(op.detected_conditions), len(op.reasoning) / 100.0] 
                        for op in opinions]
@@ -104,14 +93,11 @@ class Layer2Validator:
     
     def _make_decision_fast(self, opinions: List[SpecialistOpinion], 
                            cross_val_score: float, anomaly_detected: bool) -> Dict[str, Any]:
-        """Make decision - INSTANT intelligent fallback (Ollama too slow)"""
-        
-        # SKIP Ollama for speed - use fast weighted voting directly
-        # Ollama adds 24s+ latency on CPU, not acceptable for real-time
+
         return self._smart_fallback(opinions, cross_val_score)
     
     def _smart_fallback(self, opinions: List[SpecialistOpinion], cross_val_score: float) -> Dict[str, Any]:
-        """Intelligent weighted voting fallback - very accurate!"""
+        
         if not opinions:
             return {
                 "primary": "Unable to determine diagnosis",
@@ -120,7 +106,6 @@ class Layer2Validator:
                 "reasoning": "No specialist opinions available"
             }
         
-        # Weight each opinion by confidence and specialty
         weights = {
             "scan_analyzer": 1.5,  # Images are very reliable
             "lab_analyzer": 1.3,   # Labs are objective
@@ -137,7 +122,6 @@ class Layer2Validator:
             weight = weights.get(op.model_name, 1.0)
             score = op.confidence * weight
             
-            # Add to weighted scores
             diag_key = op.diagnosis.lower()
             if diag_key not in weighted_scores:
                 weighted_scores[diag_key] = {
@@ -155,7 +139,6 @@ class Layer2Validator:
             )
         
         if not weighted_scores:
-            # Use highest confidence
             sorted_ops = sorted(opinions, key=lambda x: x.confidence, reverse=True)
             return {
                 "primary": sorted_ops[0].diagnosis,
@@ -164,16 +147,12 @@ class Layer2Validator:
                 "reasoning": f"Based on {sorted_ops[0].model_name} (highest confidence)"
             }
         
-        # Find best diagnosis by weighted score
         best_diag = max(weighted_scores.values(), key=lambda x: x["total_score"])
         
-        # Adjust confidence based on agreement
         final_confidence = best_diag["max_confidence"]
         if best_diag["count"] > 1:
-            # Multiple specialists agree - boost confidence
             final_confidence = min(final_confidence * 1.15, 0.92)
         
-        # Apply cross-validation boost
         if cross_val_score > 0.6:
             final_confidence = min(final_confidence * 1.1, 0.95)
         
@@ -185,7 +164,7 @@ class Layer2Validator:
         }
     
     def _get_secondary(self, opinions: List[SpecialistOpinion], primary: str) -> List[Dict]:
-        """Get secondary diagnoses"""
+        
         secondary = []
         seen = {primary.lower()}
         
@@ -201,6 +180,4 @@ class Layer2Validator:
         
         return secondary
 
-
-# Global instance
 layer2_validator = Layer2Validator()

@@ -1,7 +1,4 @@
-"""
-FastAPI Main Application
-Universal AI Disease Prediction Engine Backend
-"""
+
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -24,7 +21,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For development
@@ -33,26 +29,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve output files
 if os.path.exists(settings.OUTPUT_DIR):
     app.mount("/outputs", StaticFiles(directory=settings.OUTPUT_DIR), name="outputs")
 
-
 @app.get("/")
 async def root():
-    """Health check endpoint"""
+    
     return {
         "message": "Universal AI Disease Prediction Engine API",
         "version": "1.0.0",
         "status": "running"
     }
 
-
 @app.get("/health")
 async def health_check():
-    """Check if all systems are operational"""
+    
     try:
-        # Check Ollama connectivity
         from utils.ollama_client import ollama_client
         test_response = ollama_client.generate("Test", temperature=0.1)
         ollama_status = "connected" if test_response else "disconnected"
@@ -65,53 +57,48 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-
 @app.post("/api/diagnose")
-async def diagnose(file: UploadFile = File(...)):
-    """
-    Main diagnosis endpoint - processes PDF through all 4 layers
+async def diagnose(file: UploadFile = File(...), scan: UploadFile = File(None)):
     
-    Args:
-        file: Uploaded PDF file containing patient data
-        
-    Returns:
-        Complete diagnosis with annotations
-    """
     print(f"\n{'='*60}")
     print(f"[API] New diagnosis request: {file.filename}")
+    if scan:
+        print(f"[API] Dedicated scan provided: {scan.filename}")
     print(f"{'='*60}\n")
     
     start_time = time.time()
     
-    # Validate file
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
     
-    # Save uploaded file
     upload_path = os.path.join(settings.UPLOAD_DIR, f"patient_{int(time.time())}.pdf")
+    scan_path = None
     
     try:
         with open(upload_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        print(f"[API] PDF file saved: {upload_path}")
         
-        print(f"[API] File saved: {upload_path}")
+        if scan:
+            from pathlib import Path
+            ext = Path(scan.filename).suffix
+            scan_path = os.path.join(settings.UPLOAD_DIR, f"scan_{int(time.time())}{ext}")
+            with open(scan_path, "wb") as buffer:
+                shutil.copyfileobj(scan.file, buffer)
+            print(f"[API] Scan file saved: {scan_path}")
         
-        # LAYER 0: PDF Processing
         print(f"\n{'-'*60}")
-        patient_data = layer0_processor.process(upload_path)
+        patient_data = layer0_processor.process(upload_path, scan_path)
         print(f"{'-'*60}\n")
         
-        # LAYER 1: Multiple AI Specialists
         print(f"\n{'-'*60}")
         layer1_output = layer1_specialists.process(patient_data)
         print(f"{'-'*60}\n")
         
-        # LAYER 2: Major AI Validator
         print(f"\n{'-'*60}")
         layer2_diagnosis = layer2_validator.process(layer1_output)
         print(f"{'-'*60}\n")
         
-        # LAYER 3: Explanation Generator
         print(f"\n{'-'*60}")
         layer3_report = layer3_annotator.process(layer2_diagnosis, patient_data, layer1_output)
         print(f"{'-'*60}\n")
@@ -125,7 +112,6 @@ async def diagnose(file: UploadFile = File(...)):
         print(f"[API] Confidence: {layer2_diagnosis.confidence:.0%}")
         print(f"{'='*60}\n")
         
-        # Build response - flatten for frontend (serialize datetime properly)
         response_dict = {
             "success": True,
             "primary_diagnosis": layer2_diagnosis.primary_diagnosis,
@@ -146,17 +132,21 @@ async def diagnose(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
     
     finally:
-        # Cleanup uploaded file
         if os.path.exists(upload_path):
             try:
                 os.remove(upload_path)
             except:
                 pass
-
+        
+        if scan_path and os.path.exists(scan_path):
+            try:
+                os.remove(scan_path)
+            except:
+                pass
 
 @app.get("/api/report/{filename}")
 async def get_report(filename: str):
-    """Download generated report PDF"""
+    
     file_path = os.path.join(settings.OUTPUT_DIR, filename)
     
     if not os.path.exists(file_path):
@@ -168,10 +158,9 @@ async def get_report(filename: str):
         filename=filename
     )
 
-
 @app.get("/api/image/{filename}")
 async def get_image(filename: str):
-    """Get annotated image"""
+    
     file_path = os.path.join(settings.OUTPUT_DIR, filename)
     
     if not os.path.exists(file_path):
@@ -179,17 +168,8 @@ async def get_image(filename: str):
     
     return FileResponse(file_path, media_type="image/png")
 
-
 if __name__ == "__main__":
-    print("""
-    ╔══════════════════════════════════════════════════════════╗
-    ║  Universal AI Disease Prediction Engine                  ║
-    ║  Multi-Layer AI Medical Diagnostic System                ║
-    ╚══════════════════════════════════════════════════════════╝
-    
-    Starting server on http://localhost:8000
-    API Documentation: http://localhost:8000/docs
-    """)
+    print()
     
     uvicorn.run(
         "main:app",

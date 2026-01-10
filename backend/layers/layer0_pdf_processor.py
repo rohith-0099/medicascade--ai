@@ -1,47 +1,49 @@
-"""
-Layer 0: PDF Processor
-Main orchestrator for PDF data extraction and classification
-"""
+
 from utils.pdf_extractor import PDFExtractor
 from utils.data_classifier import DataClassifier
 from schemas import PatientData
 from typing import Dict, Any
 import time
 
-
 class Layer0Processor:
-    """Layer 0: Extracts and classifies data from patient PDF"""
-    
+
     def __init__(self):
         self.classifier = DataClassifier()
     
-    def process(self, pdf_path: str) -> PatientData:
-        """
-        Main processing pipeline for Layer 0
+    def process(self, pdf_path: str, scan_path: str = None) -> PatientData:
         
-        Args:
-            pdf_path: Path to uploaded PDF
-            
-        Returns:
-            PatientData object with structured data
-        """
         print(f"[Layer 0] Processing PDF: {pdf_path}")
+        if scan_path:
+            print(f"[Layer 0] Processing Dedicated Scan: {scan_path}")
+            
         start_time = time.time()
         
-        # Step 1: Extract data from PDF
         extractor = PDFExtractor(pdf_path)
         
         print("[Layer 0] Extracting text...")
-        text, images = extractor.smart_extract()
+        text, pdf_images = extractor.smart_extract()
+        
+        images = []
+        
+        if scan_path:
+            import base64
+            try:
+                with open(scan_path, "rb") as img_file:
+                    encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
+                    images = [encoded_string]
+                    print("[Layer 0] Using dedicated scan image for analysis")
+            except Exception as e:
+                print(f"[Layer 0] Error reading scan image: {e}")
+                images = pdf_images
+        else:
+            images = pdf_images
         
         print("[Layer 0] Extracting tables...")
         tables = extractor.extract_tables()
         
-        # Step 2: Classify extracted text
         print("[Layer 0] Classifying text sections...")
         classified_sections = self.classifier.classify_sections(text)
         
-        # Step 3: Extract structured data
         print("[Layer 0] Extracting structured data...")
         
         patient_info = {}
@@ -56,11 +58,9 @@ class Layer0Processor:
                 classified_sections["lab_results"]
             )
         
-        # Also extract lab data from tables
         for table in tables:
             lab_results.update(self._extract_lab_from_table(table))
         
-        # Step 4: Compile into PatientData schema
         patient_data = PatientData(
             patient_info=patient_info,
             symptoms=classified_sections.get("symptoms", ""),
@@ -76,23 +76,13 @@ class Layer0Processor:
         return patient_data
     
     def _extract_lab_from_table(self, table: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Extract lab values from a table structure
         
-        Args:
-            table: Table dictionary
-            
-        Returns:
-            Dictionary of lab test names to values
-        """
         lab_data = {}
         
         try:
-            # Look for test name and value columns
             headers = table.get("headers", [])
             rows = table.get("data", [])
             
-            # Common patterns for test name and value columns
             test_col = None
             value_col = None
             
@@ -103,7 +93,6 @@ class Layer0Processor:
                 if any(k in header_lower for k in ['value', 'result', 'level']):
                     value_col = header
             
-            # Extract data
             if test_col and value_col:
                 for row in rows:
                     if test_col in row and value_col in row:
@@ -117,6 +106,4 @@ class Layer0Processor:
         
         return lab_data
 
-
-# Global instance
 layer0_processor = Layer0Processor()

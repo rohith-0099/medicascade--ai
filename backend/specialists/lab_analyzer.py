@@ -1,10 +1,7 @@
-"""  
-Lab Analyzer - Medical lab interpretation
-"""
+
 from schemas import SpecialistOpinion
 from typing import List
 import re
-
 
 class LabAnalyzer:
     def __init__(self):
@@ -75,6 +72,5 @@ class LabAnalyzer:
                 }
         
         return None
-
 
 lab_analyzer = LabAnalyzer()

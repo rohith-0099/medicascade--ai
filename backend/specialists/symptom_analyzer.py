@@ -1,9 +1,6 @@
-"""
-Symptom Analyzer - Using ClinicalBERT AI + Medical Knowledge
-"""
+
 from utils.hf_api import hf_client
 from schemas import SpecialistOpinion
-
 
 class SymptomAnalyzer:
     def __init__(self):
@@ -82,6 +79,5 @@ class SymptomAnalyzer:
             confidence=0.50,
             reasoning=f"Symptoms: {symptoms_text[:100]}..."
         )
-
 
 symptom_analyzer = SymptomAnalyzer()

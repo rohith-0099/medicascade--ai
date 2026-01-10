@@ -1,16 +1,12 @@
-"""
-Gemini API Client for medical explanations
-"""
+
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-
 class GeminiClient:
-    """Google Gemini API for medical reasoning"""
-    
+
     def __init__(self):
         api_key = os.getenv("GEMINI_API_KEY")
         if api_key:
@@ -22,7 +18,7 @@ class GeminiClient:
             print("⚠️ Gemini API key not found")
     
     def generate_medical_explanation(self, prompt: str, max_tokens: int = 800) -> str:
-        """Generate medical explanation using Gemini"""
+        
         if not self.model:
             return None
         
@@ -42,6 +38,4 @@ class GeminiClient:
         
         return None
 
-
-# Global instance
 gemini_client = GeminiClient()

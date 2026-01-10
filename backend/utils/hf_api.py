@@ -1,7 +1,4 @@
-"""
-HuggingFace API Client with Improved Response Parsing
-Handles all communication with HuggingFace Inference API
-"""
+
 import requests
 import os
 from typing import Dict, Any
@@ -10,13 +7,10 @@ import json
 import re
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
-
 class HuggingFaceClient:
-    """Client for HuggingFace Inference API with robust parsing"""
-    
+
     def __init__(self):
         self.token = os.getenv("HF_API_TOKEN", "")
         if not self.token:
@@ -28,17 +22,7 @@ class HuggingFaceClient:
         self.headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
     
     def query(self, model_id: str, payload: Dict, max_retries: int = 2) -> Any:
-        """
-        Query HuggingFace model
         
-        Args:
-            model_id: Model identifier (e.g., "google/gemma-2-9b-it")
-            payload: Request payload with "inputs" key
-            max_retries: Number of retries for model loading
-        
-        Returns:
-            API response
-        """
         url = self.base_url + model_id
         
         for attempt in range(max_retries + 1):
@@ -50,7 +34,6 @@ class HuggingFaceClient:
                     timeout=60
                 )
                 
-                # Model loading - wait and retry
                 if response.status_code == 503:
                     if attempt < max_retries:
                         wait_time = 20 * (attempt + 1)
@@ -76,17 +59,12 @@ class HuggingFaceClient:
         return {"error": "Max retries exceeded"}
     
     def extract_json_from_text(self, text: str) -> Dict:
-        """
-        Robust JSON extraction from AI text responses
-        Handles various formats and markdown code blocks
-        """
-        # Try direct JSON parse first
+        
         try:
             return json.loads(text)
         except:
             pass
         
-        # Try to find JSON in markdown code blocks
         patterns = [
             r'```json\s*(.*?)\s*```',  # ```json {...} ```
             r'```\s*({\s*.*?}\s*)```',  # ``` {...} ```
@@ -102,10 +80,8 @@ class HuggingFaceClient:
                 except:
                     continue
         
-        # Last resort: extract key-value pairs manually
         result = {}
         
-        # Look for common patterns
         diagnosis_match = re.search(r'"?primary[_\s]diagnosis"?\s*:\s*"([^"]+)"', text, re.IGNORECASE)
         if diagnosis_match:
             result['primary_diagnosis'] = diagnosis_match.group(1)
@@ -120,6 +96,4 @@ class HuggingFaceClient:
         
         return result if result else {"error": "Could not parse response"}
 
-
-# Global instance
 hf_client = HuggingFaceClient()

@@ -1,9 +1,6 @@
-"""
-Notes & Risk Analyzers
-"""
+
 from schemas import SpecialistOpinion
 from typing import Dict, Any
-
 
 class NotesAnalyzer:
     def __init__(self):
@@ -51,7 +48,6 @@ class NotesAnalyzer:
             confidence=0.45,
             reasoning="No specific condition identified"
         )
-
 
 class RiskAnalyzer:
     def __init__(self):
@@ -108,7 +104,6 @@ class RiskAnalyzer:
             detected_conditions=conditions,
             key_findings={"ai_model": self.ai_model, "age": age}
         )
-
 
 notes_analyzer = NotesAnalyzer()
 risk_analyzer = RiskAnalyzer()

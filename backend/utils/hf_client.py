@@ -1,15 +1,11 @@
-"""
-HuggingFace Inference API Client
-"""
+
 import requests
 from typing import Dict, Any, Optional, List
 from config import settings
 import time
 
-
 class HuggingFaceClient:
-    """Client for HuggingFace Inference API"""
-    
+
     def __init__(self):
         self.api_token = settings.HUGGINGFACE_TOKEN
         self.headers = {
@@ -19,18 +15,7 @@ class HuggingFaceClient:
     
     def query_text_generation(self, model: str, prompt: str, max_length: int = 500,
                             temperature: float = 0.7) -> str:
-        """
-        Query text generation model
         
-        Args:
-            model: Model identifier on HuggingFace
-            prompt: Input prompt
-            max_length: Maximum response length
-            temperature: Sampling temperature
-            
-        Returns:
-            Generated text
-        """
         url = f"{self.base_url}/{model}"
         
         payload = {
@@ -56,7 +41,6 @@ class HuggingFaceClient:
             
         except requests.exceptions.RequestException as e:
             print(f"HuggingFace API error for {model}: {e}")
-            # If rate limited, wait and retry once
             if "503" in str(e) or "rate" in str(e).lower():
                 print("Model loading or rate limited, waiting 10s and retrying...")
                 time.sleep(10)
@@ -70,16 +54,7 @@ class HuggingFaceClient:
             return ""
     
     def query_classification(self, model: str, text: str) -> List[Dict[str, Any]]:
-        """
-        Query classification model
         
-        Args:
-            model: Model identifier
-            text: Text to classify
-            
-        Returns:
-            List of classification results
-        """
         url = f"{self.base_url}/{model}"
         
         payload = {"inputs": text}
@@ -99,16 +74,7 @@ class HuggingFaceClient:
             return []
     
     def query_vision(self, model: str, image_data: bytes) -> str:
-        """
-        Query vision model with image
         
-        Args:
-            model: Vision model identifier
-            image_data: Image bytes
-            
-        Returns:
-            Model output/classification
-        """
         url = f"{self.base_url}/{model}"
         
         try:
@@ -121,7 +87,6 @@ class HuggingFaceClient:
             response.raise_for_status()
             result = response.json()
             
-            # Handle different response formats
             if isinstance(result, list) and len(result) > 0:
                 if isinstance(result[0], dict):
                     return result[0].get("label", str(result[0]))
@@ -135,6 +100,4 @@ class HuggingFaceClient:
             print(f"HuggingFace vision error: {e}")
             return ""
 
-
-# Global instance
 hf_client = HuggingFaceClient()

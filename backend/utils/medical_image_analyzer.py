@@ -1,44 +1,45 @@
-"""
-Medical Image Analyzer - Simple CV-based detection
-"""
+
 import cv2
 import numpy as np
 import base64
 from typing import Dict, Any, List
 
-
 class MedicalImageAnalyzer:
-    """Fast medical image analysis using OpenCV"""
-    
+
     def __init__(self):
         print("✅ Medical Image Analyzer initialized (OpenCV Enhanced Mode)")
     
     def analyze_medical_image(self, img_base64: str) -> Dict[str, Any]:
-        """
-        Analyze medical image for abnormalities
-        Returns dict with findings and positions
-        """
+        
         try:
-            # Decode base64 image
             img_bytes = base64.b64decode(img_base64)
             nparr = np.frombuffer(img_bytes, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
             
             if img is None:
                 return {"total_findings": 0, "abnormality_positions": []}
+
+            blurred = cv2.GaussianBlur(img, (5, 5), 0)
             
-            # Simple threshold-based detection
-            # Find bright regions (potential abnormalities)
-            _, thresh = cv2.threshold(img, 200, 255, cv2.THRESH_BINARY)
+            thresh = cv2.adaptiveThreshold(
+                blurred, 
+                255, 
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                cv2.THRESH_BINARY_INV,
+                11,
+                2
+            )
             
-            # Find contours
-            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            kernel = np.ones((3,3), np.uint8)
+            opening = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+            closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel, iterations=2)
             
-            # Filter significant contours
+            contours, _ = cv2.findContours(closing, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
             abnormal_positions = []
             for cnt in contours:
                 area = cv2.contourArea(cnt)
-                if area > 50:  # Minimum size threshold
+                if 100 < area < (img.shape[0] * img.shape[1] * 0.9): 
                     M = cv2.moments(cnt)
                     if M["m00"] != 0:
                         cx = int(M["m10"] / M["m00"])
@@ -54,6 +55,4 @@ class MedicalImageAnalyzer:
             print(f"Image analysis error: {e}")
             return {"total_findings": 0, "abnormality_positions": []}
 
-
-# Global instance
 medical_image_analyzer = MedicalImageAnalyzer()

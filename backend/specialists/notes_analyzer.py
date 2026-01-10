@@ -1,13 +1,9 @@
-"""
-Notes Analyzer - Using FLAN-T5 for clinical notes extraction
-"""
+
 from utils.hf_api import hf_client
 from schemas import SpecialistOpinion
 
-
 class NotesAnalyzer:
-    """FLAN-T5 for clinical notes extraction"""
-    
+
     def __init__(self):
         self.model_name = "notes_analyzer"
         self.ai_model = "google/flan-t5-base"
@@ -19,7 +15,7 @@ class NotesAnalyzer:
         }
     
     def analyze(self, notes_text: str) -> SpecialistOpinion:
-        """AI-powered notes analysis"""
+        
         if not notes_text or len(notes_text) < 20:
             return SpecialistOpinion(
                 model_name=self.model_name,
@@ -32,7 +28,6 @@ class NotesAnalyzer:
         
         notes_lower = notes_text.lower()
         
-        # Extract conditions
         for condition, keywords in self.conditions.items():
             matches = sum(1 for kw in keywords if kw in notes_lower)
             if matches > 0:
@@ -55,6 +50,5 @@ class NotesAnalyzer:
             confidence=0.45,
             reasoning="No specific condition identified"
         )
-
 
 notes_analyzer = NotesAnalyzer()

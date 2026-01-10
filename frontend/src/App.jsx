@@ -16,17 +16,20 @@ function App() {
     // Simulated progress tracking
     const progressInterval = useRef(null)
 
-    const handleFileUpload = async (file) => {
+    const handleFileUpload = async (file, scan) => {
         setState({
             isProcessing: true,
             progress: 0,
-            currentLayer: 'Uploading file...',
+            currentLayer: 'Uploading files...',
             results: null,
             error: null
         })
 
         const formData = new FormData()
         formData.append('file', file)
+        if (scan) {
+            formData.append('scan', scan)
+        }
 
         // Start progress simulation
         startProgressSimulation()
