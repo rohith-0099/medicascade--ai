@@ -16,17 +16,21 @@ class CircledTextFlowable(Flowable):
     def __init__(self, text):
         Flowable.__init__(self)
         self.text = text
-        self.width = max(len(text) * 8 + 20, 60)
-        self.height = 30
+        # Thicker padding for clear circle visibility
+        self.width = max(len(text) * 9 + 40, 80)
+        self.height = 40
 
     def draw(self):
+        # Draw bold red ellipse
         self.canv.setStrokeColor(red)
-        self.canv.setLineWidth(2)
-        self.canv.ellipse(0, 0, self.width, self.height)
+        self.canv.setLineWidth(3)  # Increased from 2 to 3 for better visibility
+        # Draw ellipse with slight padding from boundaries
+        self.canv.ellipse(2, 2, self.width - 2, self.height - 2)
         
-        self.canv.setFillColor(HexColor('#000000'))
-        self.canv.setFont("Helvetica-Bold", 12)
-        self.canv.drawCentredString(self.width/2, self.height/2 - 4, self.text)
+        # Draw text bold and centered
+        self.canv.setFillColor(black)
+        self.canv.setFont("Helvetica-Bold", 14) # Larger font
+        self.canv.drawCentredString(self.width/2, self.height/2 - 5, self.text)
 
 class PDFAnnotator:
    
@@ -99,8 +103,9 @@ class PDFAnnotator:
                 if ':' in clean_val:
                     label, value = clean_val.split(':', 1)
                     label = label.strip()
-                    value = value.strip()
+                    value = value.strip()  # Crucial: remove leading space
                     
+                    # Create the circled value flowable
                     value_circle = CircledTextFlowable(value)
                     
                     label_para = Paragraph(f"<b>{label}:</b>", self.styles['Normal'])
@@ -115,7 +120,7 @@ class PDFAnnotator:
                     ('ALIGN', (0,0), (0,-1), 'RIGHT'),  # Label right aligned
                     ('ALIGN', (1,0), (1,-1), 'LEFT'),   # Value left aligned
                     ('LEFTPADDING', (1,0), (1,-1), 15), # Space between label and value
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 10), # Vertical spacing between rows
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 20), # Increased vertical spacing for larger circles
                 ]))
                 
                 story.append(t)
@@ -161,13 +166,18 @@ class PDFAnnotator:
         
         reasoning = data.get("reasoning", "No reasoning provided")
         
+        # Sanitize reasoning text: handle literal \n and ensuring proper spacing
+        reasoning = reasoning.replace('\\n', '\n').replace('\\t', '    ')
+        
         xai_style = ParagraphStyle(
             name='XAI',
             parent=self.styles['Normal'],
             fontSize=11,
-            leading=16,
+            leading=14,
             leftIndent=15,
-            spaceAfter=8
+            rightIndent=15,  # Add right indent to ensure proper padding
+            spaceAfter=8,
+            alignment=TA_LEFT
         )
         
         xai_header_style = ParagraphStyle(
@@ -183,17 +193,29 @@ class PDFAnnotator:
         for line in lines:
             line = line.strip()
             if not line:
+                story.append(Spacer(1, 0.1 * inch))
                 continue
             
-            if line.startswith('##') or line.startswith('**Step'):
+            # Support multiple levels of markdown headers
+            if line.startswith('###'):
+                clean_line = line.replace('###', '').replace('**', '').strip()
+                story.append(Paragraph(f"<b>{clean_line}</b>", xai_header_style))
+            elif line.startswith('##'):
                 clean_line = line.replace('##', '').replace('**', '').strip()
+                story.append(Paragraph(f"<b><font size='14'>{clean_line}</font></b>", xai_header_style))
+            elif line.startswith('#'):
+                clean_line = line.replace('#', '').replace('**', '').strip()
+                story.append(Paragraph(f"<b><font size='16'>{clean_line}</font></b>", xai_header_style))
+            elif line.startswith('**Step') or line.startswith('**Section'):
+                clean_line = line.replace('**', '').strip()
                 story.append(Paragraph(f"<b>{clean_line}</b>", xai_header_style))
             elif line.startswith('**'):
                 clean_line = line.replace('**', '')
                 story.append(Paragraph(f"<b>{clean_line}</b>", xai_style))
-            elif line.startswith('-') or line.startswith('•'):
-                clean_line = line[1:].strip()
-                story.append(Paragraph(f"  • {clean_line}", xai_style))
+            elif line.startswith('-') or line.startswith('•') or line.startswith('* '):
+                # Clean bullet point
+                clean_line = re.sub(r'^[\-\*•]\s*', '', line).strip()
+                story.append(Paragraph(f"&nbsp;&nbsp;&bull; {clean_line}", xai_style))
             else:
                 story.append(Paragraph(line, xai_style))
         

@@ -1,0 +1,66 @@
+{
+  "scan_info": {
+    "original_file": "/tmp/tmp2bdg72sp.png",
+    "scan_type": "brain",
+    "analyzed_at": "2026-01-10T14:32:58.457775",
+    "marked_image": "outputs/scan_reports/tmp2bdg72sp_marked.jpg"
+  },
+  "summary": {
+    "total_findings": 3,
+    "high_severity": 0,
+    "medium_severity": 3,
+    "low_severity": 0,
+    "ml_tumor_probability": 0.236824631690979,
+    "ml_model_attribution": "Based on MohamedAliHabib/Brain-Tumor-Detection (Apache 2.0 License)"
+  },
+  "findings": [
+    {
+      "id": 1,
+      "type": "Irregular Texture",
+      "location": [
+        890,
+        422
+      ],
+      "radius": 109,
+      "size_mm": 54,
+      "intensity": 108.622650615331,
+      "texture_score": 57.65102002615428,
+      "edge_density": 0.19930982240552142,
+      "confidence": 0.85,
+      "severity": "Medium",
+      "description": "Heterogeneous texture pattern - further evaluation needed"
+    },
+    {
+      "id": 2,
+      "type": "Irregular Texture",
+      "location": [
+        902,
+        152
+      ],
+      "radius": 106,
+      "size_mm": 53,
+      "intensity": 111.59529278321281,
+      "texture_score": 50.04876114300515,
+      "edge_density": 0.18075827696689215,
+      "confidence": 0.85,
+      "severity": "Medium",
+      "description": "Heterogeneous texture pattern - further evaluation needed"
+    },
+    {
+      "id": 3,
+      "type": "Irregular Texture",
+      "location": [
+        640,
+        166
+      ],
+      "radius": 103,
+      "size_mm": 51,
+      "intensity": 112.87796020049825,
+      "texture_score": 53.615676322802805,
+      "edge_density": 0.1691959656895089,
+      "confidence": 0.85,
+      "severity": "Medium",
+      "description": "Heterogeneous texture pattern - further evaluation needed"
+    }
+  ]
+}
