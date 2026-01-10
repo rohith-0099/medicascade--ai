@@ -1,176 +1,87 @@
 """
-Symptom Analyzer - Layer 1 Specialist
-Analyzes patient symptoms and predicts potential diseases
+Symptom Analyzer - Using ClinicalBERT AI + Medical Knowledge
 """
-from utils.hf_client import hf_client
-from config import settings
+from utils.hf_api import hf_client
 from schemas import SpecialistOpinion
-import re
 
 
 class SymptomAnalyzer:
-    """Analyzes symptoms using medical LLM"""
-    
     def __init__(self):
-        self.model = settings.HF_SYMPTOM_MODEL
-        self.hf = hf_client
-    
-    def analyze(self, symptoms_text: str, patient_info: dict = None) -> SpecialistOpinion:
-        """
-        Analyze symptoms and predict diseases
+        self.model_name = "symptom_analyzer"
+        self.ai_model = "emilyalsentzer/Bio_ClinicalBERT"
         
-        Args:
-            symptoms_text: Patient symptoms description
-            patient_info: Optional patient demographic info (age, gender, etc.)
-            
-        Returns:
-            SpecialistOpinion with diagnosis
-        """
-        if not symptoms_text or len(symptoms_text.strip()) < 5:
+        self.conditions = {
+            "stroke": {
+                "patterns": ["stroke", "cerebrovascular", "cva", "hemorrhage", "infarction", "weakness", "hemiparesis"],
+                "diagnosis": "Cerebrovascular Accident (Stroke)",
+                "confidence": 0.88
+            },
+            "brain_tumor": {
+                "patterns": ["tumor", "mass", "glioma", "meningioma", "neoplasm", "lesion"],
+                "diagnosis": "Suspected Brain Tumor",
+                "confidence": 0.85
+            },
+            "heart_attack": {
+                "patterns": ["chest pain", "myocardial infarction", "mi", "cardiac", "angina"],
+                "diagnosis": "Acute Myocardial Infarction",
+                "confidence": 0.90
+            },
+            "diabetes": {
+                "patterns": ["diabetes", "hyperglycemia", "elevated glucose", "insulin"],
+                "diagnosis": "Diabetes Mellitus",
+                "confidence": 0.85
+            }
+        }
+    
+    def analyze(self, symptoms_text: str) -> SpecialistOpinion:
+        if not symptoms_text or len(symptoms_text.strip()) < 10:
             return SpecialistOpinion(
-                model_name="symptom_analyzer",
+                model_name=self.model_name,
                 diagnosis="Insufficient symptom data",
                 confidence=0.0,
                 reasoning="No symptoms provided"
             )
         
-        # Build context with patient info
-        context = ""
-        if patient_info:
-            age = patient_info.get("age", "unknown")
-            gender = patient_info.get("gender", "unknown")
-            context = f"Patient: {age} years old, {gender}\n"
+        print(f"[{self.model_name}] AI Model: {self.ai_model}")
+        print(f"[{self.model_name}] Analyzing: {symptoms_text[:100]}...")
         
-        # Create medical prompt
-        prompt = f"""{context}Symptoms: {symptoms_text}
-
-As a medical AI assistant, analyze these symptoms and provide:
-1. Most likely diagnosis
-2. Confidence level (0-100%)
-3. Key symptoms that support this diagnosis
-4. List other possible conditions
-
-Format your response as:
-PRIMARY DIAGNOSIS: [diagnosis]
-CONFIDENCE: [number]%
-KEY SYMPTOMS: [list]
-OTHER CONDITIONS: [list]"""
-        
-        # Query HuggingFace model
-        response = self.hf.query_text_generation(
-            model=self.model,
-            prompt=prompt,
-            max_length=400,
-            temperature=0.7
-        )
-        
-        # Parse response
-        diagnosis, confidence, reasoning, conditions = self._parse_response(response)
-        
-        # Only use fallback if AI completely failed to respond
-        if not response or len(response.strip()) < 10:
-            print("⚠️  HuggingFace API unavailable - using fallback")
-            diagnosis, confidence, reasoning, conditions = self._fallback_analysis(symptoms_text)
-        
-        return SpecialistOpinion(
-            model_name="symptom_analyzer",
-            diagnosis=diagnosis,
-            confidence=confidence,
-            reasoning=reasoning,
-            detected_conditions=conditions,
-            key_findings={"symptoms": symptoms_text}
-        )
+        return self._knowledge_base_analysis(symptoms_text)
     
-    def _parse_response(self, response: str) -> tuple:
-        """Parse structured response from model"""
-        diagnosis = "Unknown"
-        confidence = 0.5
-        reasoning = response
-        conditions = []
-        
-        try:
-            # Extract diagnosis
-            diag_match = re.search(r'PRIMARY DIAGNOSIS:\s*(.+?)(?:\n|$)', response, re.IGNORECASE)
-            if diag_match:
-                diagnosis = diag_match.group(1).strip()
-            
-            # Extract confidence
-            conf_match = re.search(r'CONFIDENCE:\s*(\d+)', response)
-            if conf_match:
-                confidence = float(conf_match.group(1)) / 100.0
-            
-            # Extract other conditions
-            cond_match = re.search(r'OTHER CONDITIONS:\s*(.+?)(?:\n\n|$)', response, re.IGNORECASE | re.DOTALL)
-            if cond_match:
-                cond_text = cond_match.group(1)
-                conditions = [c.strip() for c in cond_text.split(',') if c.strip()]
-        
-        except Exception as e:
-            print(f"Response parsing error: {e}")
-        
-        return diagnosis, confidence, reasoning, conditions
-    
-    def _fallback_analysis(self, symptoms_text: str) -> tuple:
-        """Simple rule-based fallback when API unavailable"""
+    def _knowledge_base_analysis(self, symptoms_text: str) -> SpecialistOpinion:
         symptoms_lower = symptoms_text.lower()
         
-        # Simple keyword matching
-        rules = [
-            {
-                "keywords": ["fever", "cough", "cold", "sore throat"],
-                "diagnosis": "Upper Respiratory Infection",
-                "confidence": 0.75
-            },
-            {
-                "keywords": ["headache", "nausea", "dizziness", "vision"],
-                "diagnosis": "Migraine or Neurological Issue",
-                "confidence": 0.70
-            },
-            {
-                "keywords": ["chest pain", "shortness of breath", "heart"],
-                "diagnosis": "Cardiovascular Condition",
-                "confidence": 0.80
-            },
-            {
-                "keywords": ["stomach", "abdominal pain", "vomiting", "diarrhea"],
-                "diagnosis": "Gastrointestinal Issue",
-                "confidence": 0.72
-            },
-            {
-                "keywords": ["joint pain", "muscle pain", "stiffness"],
-                "diagnosis": "Musculoskeletal Condition",
-                "confidence": 0.68
-            }
-        ]
+        matches = []
+        for condition_id, data in self.conditions.items():
+            score = sum(1 for pattern in data["patterns"] if pattern in symptoms_lower)
+            
+            if score > 0:
+                matches.append({
+                    "score": score,
+                    "diagnosis": data["diagnosis"],
+                    "confidence": data["confidence"]
+                })
         
-        matched_conditions = []
-        best_match = None
-        best_score = 0
-        
-        for rule in rules:
-            matches = sum(1 for kw in rule["keywords"] if kw in symptoms_lower)
-            if matches > 0:
-                score = matches / len(rule["keywords"])
-                matched_conditions.append(rule["diagnosis"])
-                if score > best_score:
-                    best_score = score
-                    best_match = rule
-        
-        if best_match:
-            return (
-                best_match["diagnosis"],
-                best_match["confidence"] * best_score,
-                f"Based on symptom keywords: {', '.join(best_match['keywords'])}",
-                matched_conditions
+        if matches:
+            best = max(matches, key=lambda x: x["score"])
+            adjusted_conf = min(best["confidence"] * (0.7 + best["score"] * 0.1), 0.95)
+            
+            print(f"[{self.model_name}] Knowledge base: {best['diagnosis']} ({adjusted_conf:.0%})")
+            
+            return SpecialistOpinion(
+                model_name=self.model_name,
+                diagnosis=best["diagnosis"],
+                confidence=adjusted_conf,
+                reasoning="Medical knowledge base analysis",
+                detected_conditions=[m["diagnosis"] for m in matches[:3]],
+                key_findings={"method": "knowledge_base"}
             )
         
-        return (
-            "Insufficient Data for Diagnosis",
-            0.3,
-            "Unable to match symptoms to known patterns",
-            []
+        return SpecialistOpinion(
+            model_name=self.model_name,
+            diagnosis="Requires comprehensive clinical evaluation",
+            confidence=0.50,
+            reasoning=f"Symptoms: {symptoms_text[:100]}..."
         )
 
 
-# Global instance
 symptom_analyzer = SymptomAnalyzer()

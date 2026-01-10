@@ -1,24 +1,40 @@
 """
-Configuration settings for the Universal AI Disease Prediction Engine
+Configuration settings for MedicaScade AI
 """
 import os
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 from typing import Optional
 
 
 class Settings(BaseSettings):
-    """Application settings"""
+    """Application settings from environment variables"""
     
-    # API Configuration
-    HUGGINGFACE_TOKEN: Optional[str] = os.getenv("HUGGINGFACE_TOKEN", "")
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama3.2"
+    # HuggingFace Configuration
+    HF_API_TOKEN: str = ""
+    HUGGINGFACE_TOKEN: str = ""  # Backward compatibility
     
-    # HuggingFace Models - Updated to working models
-    HF_SYMPTOM_MODEL: str = "microsoft/BioGPT-Large"
-    HF_LAB_MODEL: str = "emilyalsentzer/Bio_ClinicalBERT"
-    HF_NOTES_MODEL: str = "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext"
-    HF_VISION_MODEL: str = "google/vit-base-patch16-224"
+    # Ollama Configuration (Local LLM)
+    OLLAMA_HOST: str = "http://localhost:11434"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"  # Backward compatibility
+    OLLAMA_MODEL: str = "llama3.2:3b"
+    
+    # Logging
+    LOG_LEVEL: str = "INFO"
+    
+    # Model Settings
+    ANOMALY_DETECTION_CONTAMINATION: float = 0.1
+    CONFIDENCE_THRESHOLD: float =0.7
+    
+    # HuggingFace Models
+    HF_VISION_MODEL: str = "google/medgemma-4b-it"
+    HF_TEXT_MODEL: str = "google/gemma-2-9b-it"
+    HF_SYMPTOM_MODEL: str = "google/gemma-2-9b-it"
+    HF_LAB_MODEL: str = "google/gemma-2-9b-it"
+    HF_NOTES_MODEL: str = "google/gemma-2-9b-it"
+    
+    # Groq Configuration (optional)
+    GROQ_API_KEY: str = ""
     
     # File Upload Settings
     MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
@@ -33,11 +49,14 @@ class Settings(BaseSettings):
     # Anomaly Detection
     ANOMALY_CONTAMINATION: float = 0.1
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = ConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra='ignore'  # Ignore extra fields in .env
+    )
 
 
+# Create settings instance
 settings = Settings()
 
 # Create necessary directories

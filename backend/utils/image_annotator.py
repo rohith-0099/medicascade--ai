@@ -106,45 +106,44 @@ class ImageAnnotator:
         
         return img
     
-    def create_default_annotation(self, image_base64: str, diagnosis: str) -> str:
-        """Create a default annotation for medical image"""
+    def create_default_annotation(self, image_base64: str, diagnosis: str, abnormalities: list = None) -> str:
+        """Add RED DOT at detected spots + diagnosis label"""
         try:
             # Decode to get image dimensions
             img_bytes = base64.b64decode(image_base64)
             img_pil = Image.open(io.BytesIO(img_bytes))
             width, height = img_pil.size
             
-            # Create default annotation in center
-            annotations = [
-                {
-                    "type": "circle",
-                    "center": (width // 2, height // 2),
-                    "radius": min(width, height) // 8,
-                    "color": "red",
-                    "thickness": 4
-                },
-                {
-                    "type": "text",
-                    "text": f"Area of Interest",
-                    "position": (20, height - 30),
-                    "color": "yellow",
-                    "font_scale": 1.0,
-                    "thickness": 2
-                },
-                {
-                    "type": "text",
-                    "text": diagnosis[:40],
-                    "position": (20, 40),
-                    "color": "green",
-                    "font_scale": 0.8,
-                    "thickness": 2
-                }
-            ]
+            annotations = []
+            
+            # If abnormalities detected, add RED DOTS at those spots
+            if abnormalities and len(abnormalities) > 0:
+                for abnorm in abnormalities[:3]:  # Max 3 dots
+                    center = abnorm.get('center')
+                    if center:
+                        # Draw small RED DOT at detected location
+                        annotations.append({
+                            "type": "circle",
+                            "center": center,
+                            "radius": 8,  # Small dot
+                            "color": "red",
+                            "thickness": -1  # Filled circle (solid dot)
+                        })
+            
+            # Add diagnosis label at top
+            annotations.append({
+                "type": "text",
+                "text": diagnosis[:50],
+                "position": (20, 40),
+                "color": "green",
+                "font_scale": 0.8,
+                "thickness": 2
+            })
             
             return self.annotate_image(image_base64, annotations)
         
         except Exception as e:
-            print(f"Default annotation error: {e}")
+            print(f"Annotation error: {e}")
             return image_base64
 
 

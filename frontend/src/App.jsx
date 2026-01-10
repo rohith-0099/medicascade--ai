@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import UploadSection from './components/UploadSection'
 import LoadingProgress from './components/LoadingProgress'
 import ResultsDashboard from './components/ResultsDashboard'
+import AIDebugView from './components/AIDebugView'
 
 function App() {
     const [state, setState] = useState({
@@ -12,11 +13,14 @@ function App() {
         error: null
     })
 
+    // Simulated progress tracking
+    const progressInterval = useRef(null)
+
     const handleFileUpload = async (file) => {
         setState({
             isProcessing: true,
             progress: 0,
-            currentLayer: 'Uploading...',
+            currentLayer: 'Uploading file...',
             results: null,
             error: null
         })
@@ -24,9 +28,10 @@ function App() {
         const formData = new FormData()
         formData.append('file', file)
 
-        try {
-            updateProgress(20, 'Layer 0: Extracting data from PDF...')
+        // Start progress simulation
+        startProgressSimulation()
 
+        try {
             const response = await fetch('/api/diagnose', {
                 method: 'POST',
                 body: formData
@@ -36,28 +41,21 @@ function App() {
                 throw new Error(`Server error: ${response.status}`)
             }
 
-            updateProgress(40, 'Layer 1: Analyzing with AI specialists...')
-            await sleep(800)
-
-            updateProgress(65, 'Layer 2: Cross-validating findings...')
-            await sleep(800)
-
-            updateProgress(85, 'Layer 3: Generating explanation...')
-
             const data = await response.json()
 
-            updateProgress(100, 'Analysis complete!')
-            await sleep(500)
+            // Stop simulation and show 100%
+            stopProgressSimulation()
 
             setState({
                 isProcessing: false,
                 progress: 100,
-                currentLayer: '',
+                currentLayer: 'Analysis complete!',
                 results: data,
                 error: null
             })
         } catch (error) {
             console.error('Diagnosis error:', error)
+            stopProgressSimulation()
             setState(prev => ({
                 ...prev,
                 isProcessing: false,
@@ -66,17 +64,58 @@ function App() {
         }
     }
 
-    const updateProgress = (progress, layer) => {
-        setState(prev => ({
-            ...prev,
-            progress,
-            currentLayer: layer
-        }))
+    const startProgressSimulation = () => {
+        // Clear any existing interval
+        if (progressInterval.current) {
+            clearInterval(progressInterval.current)
+        }
+
+        let currentProgress = 0
+        const layers = [
+            { progress: 20, label: 'Layer 0: Extracting data from PDF...' },
+            { progress: 35, label: 'Layer 0: Classifying text sections...' },
+            { progress: 50, label: 'Layer 1: Running 5 AI specialists in parallel...' },
+            { progress: 60, label: 'Layer 1: Symptom analysis...' },
+            { progress: 65, label: 'Layer 1: Lab result analysis...' },
+            { progress: 70, label: 'Layer 1: Medical image detection...' },
+            { progress: 75, label: 'Layer 2: Cross-validating findings...' },
+            { progress: 82, label: 'Layer 2: Resolving conflicts...' },
+            { progress: 88, label: 'Layer 3: Generating explanation...' },
+            { progress: 94, label: 'Layer 3: Annotating images...' },
+            { progress: 98, label: 'Layer 3: Creating PDF report...' }
+        ]
+
+        let layerIndex = 0
+
+        progressInterval.current = setInterval(() => {
+            if (layerIndex < layers.length) {
+                const layer = layers[layerIndex]
+                setState(prev => ({
+                    ...prev,
+                    progress: layer.progress,
+                    currentLayer: layer.label
+                }))
+                layerIndex++
+            } else {
+                // Keep at 98% until response comes
+                setState(prev => ({
+                    ...prev,
+                    progress: 98,
+                    currentLayer: 'Finalizing analysis...'
+                }))
+            }
+        }, 1500) // Update every 1.5 seconds
     }
 
-    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+    const stopProgressSimulation = () => {
+        if (progressInterval.current) {
+            clearInterval(progressInterval.current)
+            progressInterval.current = null
+        }
+    }
 
     const handleReset = () => {
+        stopProgressSimulation()
         setState({
             isProcessing: false,
             progress: 0,
@@ -85,6 +124,15 @@ function App() {
             error: null
         })
     }
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (progressInterval.current) {
+                clearInterval(progressInterval.current)
+            }
+        }
+    }, [])
 
     return (
         <div className="min-h-screen py-6 px-4 sm:py-12">
@@ -171,7 +219,10 @@ function App() {
                     )}
 
                     {state.results && !state.isProcessing && (
-                        <ResultsDashboard results={state.results} onReset={handleReset} />
+                        <>
+                            <ResultsDashboard results={state.results} onReset={handleReset} />
+                            <AIDebugView diagnosisResult={state.results} />
+                        </>
                     )}
                 </div>
 

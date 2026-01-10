@@ -39,7 +39,7 @@ class Layer1Specialists:
         
         opinions = []
         
-        # Use ThreadPoolExecutor for parallel API calls
+        # Use ThreadPoolExecutor for parallel processing
         with ThreadPoolExecutor(max_workers=5) as executor:
             future_to_specialist = {
                 executor.submit(self._run_symptom_analyzer, patient_data): "symptom",
@@ -74,26 +74,37 @@ class Layer1Specialists:
         )
     
     def _run_symptom_analyzer(self, data: PatientData) -> SpecialistOpinion:
-        """Run symptom analyzer"""
-        return symptom_analyzer.analyze(data.symptoms, data.patient_info)
+        """Run symptom analyzer with patient symptoms"""
+        # Combine symptoms from structured data and raw text
+        symptoms_text = data.symptoms or ""
+        if data.raw_text:
+            symptoms_text += "\n" + data.raw_text[:1000]
+        return symptom_analyzer.analyze(symptoms_text)
     
     def _run_lab_analyzer(self, data: PatientData) -> SpecialistOpinion:
-        """Run lab analyzer"""
-        return lab_analyzer.analyze(data.lab_results)
+        """Run lab analyzer with lab results"""
+        return lab_analyzer.analyze(data.lab_results or [])
     
     def _run_scan_analyzer(self, data: PatientData) -> SpecialistOpinion:
-        """Run scan analyzer"""
-        return scan_analyzer.analyze(data.images)
+        """Run scan analyzer with medical images"""
+        return scan_analyzer.analyze(data.images or [])
     
     def _run_notes_analyzer(self, data: PatientData) -> SpecialistOpinion:
-        """Run notes analyzer"""
-        return notes_analyzer.analyze(data.clinical_notes)
+        """Run notes analyzer with clinical notes"""
+        notes_text = data.clinical_notes or ""
+        if not notes_text and data.raw_text:
+            notes_text = data.raw_text[:2000]
+        return notes_analyzer.analyze(notes_text)
     
     def _run_risk_analyzer(self, data: PatientData) -> SpecialistOpinion:
-        """Run risk analyzer"""
-        # Combine patient info and any medical history from raw text
-        history = data.raw_text[:500] if data.raw_text else ""
-        return risk_analyzer.analyze(data.patient_info, history)
+        """Run risk analyzer with patient info"""
+        patient_info = data.patient_info or {}
+        
+        # Add medical history from raw text
+        if data.raw_text:
+            patient_info['medical_history'] = data.raw_text[:1000]
+        
+        return risk_analyzer.analyze(patient_info)
 
 
 # Global instance

@@ -113,7 +113,7 @@ async def diagnose(file: UploadFile = File(...)):
         
         # LAYER 3: Explanation Generator
         print(f"\n{'-'*60}")
-        layer3_report = layer3_annotator.process(layer2_diagnosis, patient_data)
+        layer3_report = layer3_annotator.process(layer2_diagnosis, patient_data, layer1_output)
         print(f"{'-'*60}\n")
         
         total_elapsed = time.time() - start_time
@@ -125,17 +125,21 @@ async def diagnose(file: UploadFile = File(...)):
         print(f"[API] Confidence: {layer2_diagnosis.confidence:.0%}")
         print(f"{'='*60}\n")
         
-        # Build response
-        response = DiagnosisResponse(
-            success=True,
-            patient_data=patient_data,
-            layer1_output=layer1_output,
-            layer2_diagnosis=layer2_diagnosis,
-            layer3_report=layer3_report,
-            total_processing_time=total_elapsed
-        )
+        # Build response - flatten for frontend (serialize datetime properly)
+        response_dict = {
+            "success": True,
+            "primary_diagnosis": layer2_diagnosis.primary_diagnosis,
+            "confidence": layer2_diagnosis.confidence,
+            "reasoning": layer2_diagnosis.reasoning,
+            "secondary_diagnoses": layer2_diagnosis.secondary_diagnoses,
+            "cross_validation_score": layer2_diagnosis.cross_validation_score,
+            "anomaly_detected": layer2_diagnosis.anomaly_detected,
+            "explanation_text": layer3_report.explanation_text,
+            "annotated_pdf_path": layer3_report.annotated_pdf_path,
+            "total_processing_time": total_elapsed
+        }
         
-        return response
+        return response_dict
     
     except Exception as e:
         print(f"\n[API ERROR] {str(e)}\n")
