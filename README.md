@@ -9,46 +9,6 @@ Modern AI in healthcare suffers from the **"Black Box" problem**. Models give a 
 ## 🚀 The Solution: MediCascade Architecture
 **MediCascade** is a novel **4-Layer Cascade System** that mimics a real-world hospital workflow. Instead of one giant model, we use a team of specialized AI agents that "consult" with each other.
 
-### 🏗️ The 4-Layer Cascade System
-
-```mermaid
-graph TD
-    User((User)) -->|Uploads Data| L0[Layer 0: Ingestion]
-    
-    subgraph "Layer 0: Smart Ingestion"
-        L0 -->|OCR & Parsing| PDF[PDF Processor]
-        L0 -->|CV Preprocessing| IMG[Scan Enhancer]
-    end
-    
-    L0 --> L1
-    
-    subgraph "Layer 1: Specialist Ensembles"
-        L1[Orchestrator] -->|Symptoms| BERT[Symptom Specialist <br/>(ClinicalBERT)]
-        L1 -->|Lab Results| BIO[Lab Specialist <br/>(BioBERT)]
-        L1 -->|Scans| CNN[Scan Specialist <br/>(TensorFlow CNN)]
-        L1 -->|Notes| T5[Notes Specialist <br/>(FLAN-T5)]
-    end
-    
-    BERT --> L2
-    BIO --> L2
-    CNN --> L2
-    T5 --> L2
-    
-    subgraph "Layer 2: Validation Council"
-        L2[Consensus Engine] -->|Cross-Check| VAL[Conflict Resolution]
-        VAL -->|Verify| RISK[Risk Assessment]
-    end
-    
-    RISK --> L3
-    
-    subgraph "Layer 3: Explainable AI (XAI)"
-        L3[XAI Generator] -->|Visual XAI| CIRCLE[Red Circle Annotation]
-        L3 -->|Logic XAI| REASON[Chain-of-Thought Report]
-    end
-    
-    CIRCLE --> Final[Final Diagnosis Report]
-    REASON --> Final
-```
 
 ### 🔬 Detailed Layer Breakdown
 
