@@ -37,32 +37,6 @@ class ScanReportAnalyzer:
         abnormalities = self._detect_abnormalities(enhanced, gray, scan_type)
         
         ml_probability = 0.0
-        ml_result = "Not Analyzed"
-        
-        if scan_type == 'brain':
-            try:
-                from utils.ml_tumor_detector import detector
-                ml_probability = detector.predict(scan_path)
-                ml_result = "POSITIVE" if ml_probability > 0.5 else "NEGATIVE"
-                print(f"[ML MODEL] Tumor Probability: {ml_probability:.2%}")
-                
-                if ml_probability > 0.85 and len(abnormalities) == 0:
-                    abnormalities.append({
-                        'id': 1,
-                        'type': 'ML Detected Abnormaliy',
-                        'location': (original.shape[1]//2, original.shape[0]//2), # Center
-                        'radius': 50,
-                        'size_mm': 25,
-                        'intensity': 0,
-                        'texture_score': 0,
-                        'edge_density': 0,
-                        'confidence': float(ml_probability),
-                        'severity': 'High',
-                        'description': 'Deep Learning Model detected high probability of tumor (diffuse or subtle)'
-                    })
-                    
-            except Exception as e:
-                print(f"ML Model Error: {e}")
         
         marked_image = self._draw_red_circles(original, abnormalities, ml_probability)
         
@@ -284,12 +258,6 @@ class ScanReportAnalyzer:
         cv2.putText(marked, header_text, (10, 25),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
-        if ml_probability > 0:
-            ml_text = f"ML Tumor Probability: {ml_probability:.1%}"
-            color = (0, 0, 255) if ml_probability > 0.5 else (0, 255, 0)
-            cv2.putText(marked, ml_text, (10, 50),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-        
         for abn in abnormalities:
             x, y = abn['location']
             r = abn['radius']
@@ -385,9 +353,7 @@ class ScanReportAnalyzer:
                 'total_findings': len(abnormalities),
                 'high_severity': sum(1 for a in abnormalities if a['severity'] == 'High'),
                 'medium_severity': sum(1 for a in abnormalities if a['severity'] == 'Medium'),
-                'low_severity': sum(1 for a in abnormalities if a['severity'] == 'Low'),
-                'ml_tumor_probability': float(ml_probability),
-                'ml_model_attribution': "Based on MohamedAliHabib/Brain-Tumor-Detection (Apache 2.0 License)"
+                'low_severity': sum(1 for a in abnormalities if a['severity'] == 'Low')
             },
             'findings': abnormalities
         }

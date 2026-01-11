@@ -1,7 +1,6 @@
 
 from utils.ollama_client import ollama_client
 from schemas import Layer1Output, FinalDiagnosis, SpecialistOpinion
-from sklearn.ensemble import IsolationForest
 import numpy as np
 import time
 from typing import List, Dict, Any
@@ -72,23 +71,15 @@ class Layer2Validator:
         return min((overlap_score + avg_confidence) / 2, 1.0)
     
     def _detect_anomalies(self, opinions: List[SpecialistOpinion]) -> tuple:
-        
-        try:
-            features = [[op.confidence, len(op.detected_conditions), len(op.reasoning) / 100.0] 
-                       for op in opinions]
+        """Simplified anomaly detection without ML"""
+        if not opinions:
+            return False, ""
             
-            if len(features) < 2:
-                return False, ""
+        # Example of a simple heuristic anomaly detection
+        low_conf_specialists = [op for op in opinions if op.confidence < 0.2]
+        if len(low_conf_specialists) > len(opinions) / 2:
+            return True, "Major consensus conflicts - multiple low confidence opinions"
             
-            clf = IsolationForest(contamination=0.2, random_state=42)
-            predictions = clf.fit_predict(features)
-            
-            anomalies = [i for i, pred in enumerate(predictions) if pred == -1]
-            if anomalies:
-                return True, f"Unusual pattern detected in: {', '.join([opinions[i].model_name for i in anomalies])}"
-        except:
-            pass
-        
         return False, ""
     
     def _make_decision_fast(self, opinions: List[SpecialistOpinion], 
