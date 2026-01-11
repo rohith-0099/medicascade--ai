@@ -1,7 +1,9 @@
 #!/bin/bash
 # Start backend with AI verification
 
-cd /home/rohith/medicascade-ai/backend
+# Determine project root and backend dir
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" \u0026\u0026 pwd )"
+cd "$SCRIPT_DIR"
 
 echo "🚀 Starting Universal AI Disease Prediction Engine"
 echo "=================================================="
@@ -18,10 +20,10 @@ fi
 
 # Check HuggingFace token
 echo "Checking HuggingFace token..."
-if grep -q "HUGGINGFACE_TOKEN=hf_" ../.env; then
+if grep -q "HUGGINGFACE_TOKEN=your_" ../.env || grep -q "HUGGINGFACE_TOKEN=hf_" ../.env; then
     echo "✅ Token configured"
 else
-    echo "⚠️  Token not found in .env"
+    echo "⚠️  Token not found or default placeholder in .env"
 fi
 
 echo ""

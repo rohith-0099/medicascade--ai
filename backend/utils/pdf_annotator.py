@@ -66,7 +66,15 @@ class PDFAnnotator:
     
     def create_annotated_report(self, output_path: str, data: Dict[str, Any]) -> str:
         
-        doc = SimpleDocTemplate(output_path, pagesize=letter)
+        # Explicitly set margins to avoid layout squashing
+        doc = SimpleDocTemplate(
+            output_path, 
+            pagesize=letter,
+            rightMargin=50,
+            leftMargin=50,
+            topMargin=50,
+            bottomMargin=50
+        )
         story = []
         
         title = Paragraph("<b>Medical Diagnosis Report</b>", self.styles['Title'])
@@ -112,7 +120,7 @@ class PDFAnnotator:
                     table_data.append([label_para, value_circle])
             
             if table_data:
-                col_widths = [250, 200]
+                col_widths = [180, 200]
                 t = Table(table_data, colWidths=col_widths)
                 
                 t.setStyle(TableStyle([
@@ -166,56 +174,53 @@ class PDFAnnotator:
         
         reasoning = data.get("reasoning", "No reasoning provided")
         
-        # Sanitize reasoning text: handle literal \n and ensuring proper spacing
-        reasoning = reasoning.replace('\\n', '\n').replace('\\t', '    ')
-        
+        # Define XAI styles with explicit alignment and NO side constraints
         xai_style = ParagraphStyle(
             name='XAI',
             parent=self.styles['Normal'],
             fontSize=11,
-            leading=14,
-            leftIndent=15,
-            rightIndent=15,  # Add right indent to ensure proper padding
-            spaceAfter=8,
-            alignment=TA_LEFT
+            leading=16,
+            leftIndent=0,  # Reset indentation
+            rightIndent=0, # Reset indentation
+            alignment=TA_LEFT, # Explicit left alignment
+            spaceAfter=8
         )
         
         xai_header_style = ParagraphStyle(
             name='XAIHeader',
-            parent=self.styles['Heading3'],
+            parent=self.styles['Heading2'], # Use Heading2 for better visibility
             textColor=HexColor('#1976D2'),
-            fontSize=13,
-            spaceAfter=6,
-            spaceBefore=10
+            fontSize=14,
+            leftIndent=0,
+            rightIndent=0,
+            alignment=TA_LEFT,
+            spaceAfter=10,
+            spaceBefore=15
         )
+        
+        # Safety: Convert literal "\\n" used in older code to real newlines
+        reasoning = reasoning.replace('\\n', '\n')
         
         lines = reasoning.split('\n')
         for line in lines:
             line = line.strip()
             if not line:
-                story.append(Spacer(1, 0.1 * inch))
+                story.append(Spacer(1, 0.1 * inch)) # Maintain spacing for empty lines
                 continue
             
-            # Support multiple levels of markdown headers
-            if line.startswith('###'):
-                clean_line = line.replace('###', '').replace('**', '').strip()
-                story.append(Paragraph(f"<b>{clean_line}</b>", xai_header_style))
-            elif line.startswith('##'):
+            # Additional safety: ensure text within a line doesn't have internal newlines
+            # that might cause vertical stacking if misinterpreted elsewhere
+            line = line.replace('\n', ' ').strip()
+            
+            if line.startswith('##') or line.startswith('**Step'):
                 clean_line = line.replace('##', '').replace('**', '').strip()
-                story.append(Paragraph(f"<b><font size='14'>{clean_line}</font></b>", xai_header_style))
-            elif line.startswith('#'):
-                clean_line = line.replace('#', '').replace('**', '').strip()
-                story.append(Paragraph(f"<b><font size='16'>{clean_line}</font></b>", xai_header_style))
-            elif line.startswith('**Step') or line.startswith('**Section'):
-                clean_line = line.replace('**', '').strip()
                 story.append(Paragraph(f"<b>{clean_line}</b>", xai_header_style))
             elif line.startswith('**'):
                 clean_line = line.replace('**', '')
                 story.append(Paragraph(f"<b>{clean_line}</b>", xai_style))
-            elif line.startswith('-') or line.startswith('•') or line.startswith('* '):
-                # Clean bullet point
-                clean_line = re.sub(r'^[\-\*•]\s*', '', line).strip()
-                story.append(Paragraph(f"&nbsp;&nbsp;&bull; {clean_line}", xai_style))
+            elif line.startswith('-') or line.startswith('•'):
+                clean_line = line[1:].strip()
+                story.append(Paragraph(f"  • {clean_line}", xai_style))
             else:
                 story.append(Paragraph(line, xai_style))
         

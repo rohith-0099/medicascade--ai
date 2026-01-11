@@ -177,8 +177,11 @@ class Layer3Annotator:
         patient_findings = []
         for ev in evidence:
             if len(ev.text) > 10: 
-                # Capture broader context for theoretical analysis
-                patient_findings.append(f"• {ev.text[:500]} (Found in: {ev.location})") 
+                # Normalize text: replace all internal newlines with spaces to prevent vertical stacking in PDF
+                clean_text = ev.text.replace('\n', ' ').replace('\r', ' ').strip()
+                # Remove excessive spaces
+                clean_text = ' '.join(clean_text.split())
+                patient_findings.append(f"• {clean_text[:500]} (Found in: {ev.location})") 
         
         findings_text = "\n".join(patient_findings[:25]) # Increased context to 25 items
         values_section = "\n".join(specific_values) if specific_values else "No specific numerical values extracted"
@@ -191,98 +194,69 @@ class Layer3Annotator:
                 alt_list.append(f"• {s['diagnosis']} - {s['confidence']:.0%} probability")
             alternatives_text = "\n".join(alt_list)
         
-        # High-End Academic/Theoretical Prompt
-        prompt = f"""You are a world-class Distinguished Medical Consultant and Academic Researcher. 
-You are writing a THEORETICAL & CLINICAL EXPLAINABLE AI (XAI) REPORT for a board-certified physician. 
-The judges require a deep THEORETICAL explanation of the diagnosis.
+        # High-Speed Academic/Theoretical Prompt
+        prompt = f"""You are a world-class Distinguished Medical Consultant.
+Generate a HIGH-DEPTH THEORETICAL XAI report for diagnosis: {diagnosis.primary_diagnosis}.
+Focus on being CLINICALLY DENSE but token-efficient for immediate physician review.
 
-[EXECUTIVE SUMMARY]
-PRIMARY DIAGNOSIS: {diagnosis.primary_diagnosis}
-AI CONFIDENCE: {diagnosis.confidence:.0%}
-CROSS-VALIDATION: {diagnosis.cross_validation_score:.0%} score across 5 AI specialist models.
+[INPUT DATA]
+Values: {values_section}
+Context: {findings_text}
 
-[INPUT DATA: CRITICAL VALUES]
-{values_section}
+AI DIAGNOSIS: {diagnosis.primary_diagnosis} ({diagnosis.confidence:.0%})
+CROSS-VAL: {diagnosis.cross_validation_score:.0%}
 
-[INPUT DATA: FULL CLINICAL CONTEXT]
-{findings_text}
+REQUIREMENTS (BE CONCISE BUT ACADEMICALLY DEEP):
+1. **PATHOPHYSIOLOGY:** Explain the theoretical mechanism of {diagnosis.primary_diagnosis}. Focus on core clinical principles.
+2. **DATA CORRELATION:** Link {values_section} to the pathophysiology. Explain the "why" behind the numbers.
+3. **DIFFERENTIAL:** Briefly explain why {alternatives_text} were ruled out theoretically.
+4. **XAI LOGIC:** Explain the AI's internal evidence weighting in 3-4 sentences.
 
----
-
-REQUIREMENTS:
-1. THEORETICAL CORE: Explain the PATHOPHYSIOLOGY of {diagnosis.primary_diagnosis} in extreme detail. Discuss molecular and cellular mechanisms if applicable.
-2. DATA-THEORY LINK: For EVERY patient value (e.g., {values_section}), explain the academic mechanism of why it is abnormal in {diagnosis.primary_diagnosis}.
-3. ACADEMIC DIFFERENTIAL: Provide a deep theoretical analysis of why {alternatives_text} were de-prioritized compared to {diagnosis.primary_diagnosis}.
-4. XAI TRANSPARENCY: Explain the "Black Box" reasoning! How did the symptoms connect to the final diagnosis in the AI's internal logic?
-5. CLINICAL PROJECTION: What are the theoretical long-term risks if this pathophysiology continues?
-
-Use academic, formal, and authoritative medical language. Structure with these sections:
-
-## I. ACADEMIC PATHOPHYSIOLOGY (THEORETICAL CORE)
-[Deep dive into the disease mechanics, theory, and clinical significance]
-
-## II. THEORETICAL CORRELATION WITH PATIENT DATA
-[Explanation of how the patient's specific readings (cite numbers!) fit the academic profile of {diagnosis.primary_diagnosis}]
-
+Structure:
+## I. THEORETICAL PATHOPHYSIOLOGY
+## II. DATA CORRELATION ANALYSIS
 ## III. DIFFERENTIAL DIAGNOSTIC THEORY
-[Academic reasoning for ruling out {alternatives_text} vs {diagnosis.primary_diagnosis}]
+## IV. XAI REASONING LOGIC
+## V. CLINICAL PROJECTIONS
 
-## IV. XAI REASONING & EVIDENCE WEIGHTING
-[Explain exactly HOW the AI weighted the specific findings to reach {diagnosis.primary_diagnosis}]
-
-## V. CLINICAL PROJECTIONS & THEORETICAL OUTCOMES
-[Long-term theoretical medical risks and recommended academic follow-up]
-
-Target length: 800-1200 words. Be remarkably thorough. Focus heavily on THEORETICAL KNOWLEDGE."""
+Target: 500-700 High-Depth words. Be academically rigorous but fast."""
 
         try:
             from utils.gemini_client import gemini_client
-            print("[Layer 3] Attempting to generate Deep Theoretical explanation with Gemini...")
+            print(f"[Layer 3] Generating high-speed theoretical XAI report...")
             
-            # Use a slightly lower temperature for more consistent academic tone
-            response = gemini_client.generate_medical_explanation(prompt, max_tokens=2500) 
+            # Use a slightly higher temperature for faster "creative flow" if needed, 
+            # but keep it low for medical accuracy. 0.3 is good.
+            response = gemini_client.generate_medical_explanation(prompt, max_tokens=1500) 
             
-            if response and len(response.strip()) > 400:
+            if response and len(response.strip()) > 200:
+                print(f"[Layer 3] XAI Report generated successfully")
                 return response
                 
         except Exception as e:
             print(f"[Layer 3] Gemini explanation error: {e}")
             
-        try:
-            response = self.ollama.generate(prompt, temperature=0.3, max_tokens=800)
-            
-            if response and len(response.strip()) > 200:
-                formatted = response
-                
-                print(f"[Layer 3] Generated Ollama explanation with values")
-                return formatted
-        except:
-            pass
-        
         return self._generate_structured_fallback(diagnosis, evidence, patient_findings, specific_values)
     
     def _generate_structured_fallback(self, diagnosis: FinalDiagnosis, evidence: List[Evidence], patient_findings: List[str], specific_values: List[str] = None) -> str:
-        """Professional fallback if LLM APIs fail - ensures the judge sees data-backed reasoning"""
+
         if specific_values is None:
             specific_values = []
         
-        findings_section = "\n".join(patient_findings[:8])
-        values_display = "\n".join(specific_values) if specific_values else "No specific numerical values extracted"
+        findings_section = "\n".join(patient_findings[:5])
+        values_display = "\n".join(specific_values) if specific_values else "No specific numerical values extracted from patient data"
         
-        # Determine theoretical focus based on diagnosis
-        theoretical_focus = f"The diagnosis of {diagnosis.primary_diagnosis} is theoretically supported by the presence of specific biomarkers and clinical indicators listed below."
+        alternatives = ""
+        if diagnosis.secondary_diagnoses:
+            alt_items = []
+            for s in diagnosis.secondary_diagnoses[:3]:
+                alt_items.append(f"• {s['diagnosis']} ({s['confidence']:.0%})")
+            alternatives = "\n".join(alt_items)
+        else:
+            alternatives = "• No significant alternative diagnoses identified"
         
-        return (
-            f"## THEORETICAL CLINICAL ASSESSMENT\n"
-            f"{theoretical_focus}\n\n"
-            f"## DATA CORRELATION & FINDINGS\n"
-            f"The AI system identified the following evidence in the patient data:\n"
-            f"{findings_section}\n\n"
-            f"## CRITICAL KEY VALUES\n"
-            f"{values_display}\n\n"
-            f"## DIAGNOSTIC CONFIDENCE\n"
-            f"The primary diagnosis of {diagnosis.primary_diagnosis} was determined with {diagnosis.confidence:.0%} confidence based on cross-validation across multiple medical AI models."
-        )
+        # FIXED: Removed double backslashes which caused literal "\n" to appear in PDF
+        return f"**Clinical Assessment:**\n{diagnosis.primary_diagnosis} is indicated by:\n{findings_section}\n\n**Key Data:**\n{values_display}\n\n**Differential:**\n{alternatives}"
 
         prompt = f"Explain the medical diagnosis of {diagnosis.primary_diagnosis} given these symptoms:\\n{findings_section}"
 
