@@ -5,24 +5,39 @@ python-multipart==0.0.6
 pydantic==2.5.3
 pydantic-settings==2.1.0
 
-# PDF Processing
+# ── PDF Processing (Layer 0) ──────────────────────────────
 PyPDF2==3.0.1
-pdfplumber==0.10.3
+pdfplumber==0.10.3        # Primary PDF extractor
 pdf2image==1.17.0
-pytesseract==0.3.10
+pytesseract==0.3.10       # Tesseract OCR integration
 Pillow==10.2.0
 
-# AI/ML
+# ── NLP (Layer 0 + Specialist 2) ─────────────────────────
+spacy==3.7.4              # spaCy for clinical NER (Layer 0)
+# en_core_web_sm installed via: python -m spacy download en_core_web_sm
+
+# ── AI/ML Infrastructure ──────────────────────────────────
 requests==2.31.0
 numpy==1.26.3
+huggingface-hub==0.23.0   # HF Hub for gated model access
 
-# Image Processing & Annotation
+# ── Specialist 5: LightGBM Risk Scorer ───────────────────
+lightgbm==4.3.0
+
+# ── Layer 3: XAI — SHAP + Grad-CAM ──────────────────────
+shap==0.45.0
+
+# Optional: local transformers (uncomment if running locally)
+# torch==2.2.0
+# transformers==4.40.0
+
+# ── Image Processing & Annotation ────────────────────────
 opencv-python==4.9.0.80
+scipy==1.12.0
 
-# PDF Generation
+# ── PDF Generation ────────────────────────────────────────
 reportlab==4.0.9
 
-# Environment
+# ── Environment ───────────────────────────────────────────
 python-dotenv==1.0.0
 aiofiles==23.2.1
-

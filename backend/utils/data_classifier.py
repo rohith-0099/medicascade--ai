@@ -1,7 +1,6 @@
 
 import re
 from typing import Dict, Any, List
-from utils.ollama_client import ollama_client
 
 class DataClassifier:
 
@@ -17,10 +16,10 @@ class DataClassifier:
         "diagnosis",
         "other"
     ]
-    
+
     def __init__(self):
-        self.ollama = ollama_client
-    
+        pass  # Pure regex classifier — no external model needed
+
     def classify_sections(self, text: str) -> Dict[str, str]:
         
         sections = self._split_into_sections(text)

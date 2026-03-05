@@ -1,5 +1,14 @@
 import { useState, useRef } from 'react'
 
+const SPECIALIST_ICONS = {
+    scan_analyzer: { icon: '🧠', label: 'Medical Imaging (MedGemma)' },
+    symptom_analyzer: { icon: '🩺', label: 'Clinical NLP (GatorTron)' },
+    lab_analyzer: { icon: '🔬', label: 'Lab Interpretation (MedGemma)' },
+    literature_analyzer: { icon: '📚', label: 'Literature Match (BioGPT-Large)' },
+    risk_analyzer: { icon: '⚠️', label: 'Risk Scoring (LightGBM + OpenMed)' },
+}
+
+
 export default function UploadSection({ onFileUpload }) {
     const [isDragging, setIsDragging] = useState(false)
     const [selectedFile, setSelectedFile] = useState(null)
@@ -7,198 +16,209 @@ export default function UploadSection({ onFileUpload }) {
     const fileInputRef = useRef(null)
     const scanInputRef = useRef(null)
 
-    const handleDragOver = (e) => {
-        e.preventDefault()
-        setIsDragging(true)
-    }
-
-    const handleDragLeave = () => {
-        setIsDragging(false)
-    }
-
+    const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true) }
+    const handleDragLeave = () => setIsDragging(false)
     const handleDrop = (e) => {
-        e.preventDefault()
-        setIsDragging(false)
-
-        const file = e.dataTransfer.files[0]
-        handleFile(file)
+        e.preventDefault(); setIsDragging(false)
+        const file = e.dataTransfer.files[0]; handleFile(file)
     }
-
-    const handleFileSelect = (e) => {
-        const file = e.target.files[0]
-        handleFile(file)
-    }
-
+    const handleFileSelect = (e) => handleFile(e.target.files[0])
     const handleScanSelect = (e) => {
         const file = e.target.files[0]
-        if (file && file.type.startsWith('image/')) {
-            setSelectedScan(file)
-        } else {
-            alert('Please select an image file (JPG, PNG)')
-        }
+        if (file && file.type.startsWith('image/')) setSelectedScan(file)
+        else alert('Please select an image file (JPG, PNG)')
     }
-
     const handleFile = (file) => {
-        if (file && file.type === 'application/pdf') {
-            setSelectedFile(file)
-        } else {
-            alert('Please select a PDF file')
-        }
+        if (file && file.type === 'application/pdf') setSelectedFile(file)
+        else if (file) alert('Please select a PDF file')
     }
+    const handleSubmit = () => { if (selectedFile) onFileUpload(selectedFile, selectedScan) }
 
-    const handleSubmit = () => {
-        if (selectedFile) {
-            onFileUpload(selectedFile, selectedScan)
-        }
+    const fmtSize = (bytes) => {
+        if (bytes < 1024) return bytes + ' B'
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
     }
 
     return (
-        <div className="card-premium max-w-4xl mx-auto">
-            <div className="text-center mb-8">
-                <h2 className="text-3xl font-bold text-slate-800 mb-3">Upload Patient Data</h2>
-                <p className="text-slate-600 text-lg">
-                    Upload clinical report (PDF) and optional medical scan (Image)
-                </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* PDF Upload Area */}
-                <div
-                    className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-300 cursor-pointer ${isDragging
-                        ? 'border-blue-500 bg-blue-50 scale-105'
-                        : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
-                        }`}
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                >
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileSelect}
-                        accept="application/pdf"
-                        className="hidden"
-                    />
-
-                    {!selectedFile ? (
-                        <div className="space-y-4">
-                            <div className="inline-block p-4 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-xl">
-                                <svg className="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                                </svg>
-                            </div>
-                            <div>
-                                <p className="text-lg font-semibold text-slate-700">PDF Report</p>
-                                <p className="text-sm text-slate-400">Required</p>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="inline-block p-4 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-xl">
-                                <svg className="w-10 h-10 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                            </div>
-                            <div>
-                                <p className="text-lg font-semibold text-emerald-700">PDF Selected</p>
-                                <p className="text-slate-600 text-sm truncate px-2">{selectedFile.name}</p>
-                            </div>
-                        </div>
-                    )}
+        <div className="max-w-5xl mx-auto">
+            <div className="glass-card" style={{ padding: '40px' }}>
+                {/* Header */}
+                <div style={{ textAlign: 'center', marginBottom: '36px' }}>
+                    <h2 style={{ fontSize: '2rem', fontWeight: 800, color: '#e2e8f0', marginBottom: '8px' }}>
+                        Upload Patient Data
+                    </h2>
+                    <p style={{ color: '#64748b', fontSize: '1rem' }}>
+                        Clinical PDF report is required. Medical scan image is optional for enhanced imaging analysis.
+                    </p>
                 </div>
 
-                {/* Scan Upload Area */}
-                <div
-                    className="relative border-2 border-dashed border-slate-300 hover:border-indigo-400 hover:bg-slate-50 rounded-2xl p-8 text-center transition-all duration-300 cursor-pointer"
-                    onClick={() => scanInputRef.current?.click()}
-                >
-                    <input
-                        type="file"
-                        ref={scanInputRef}
-                        onChange={handleScanSelect}
-                        accept="image/png, image/jpeg"
-                        className="hidden"
-                    />
+                {/* Upload Zones */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '32px' }}>
+                    {/* PDF Zone */}
+                    <div
+                        onClick={() => fileInputRef.current?.click()}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        style={{
+                            border: isDragging
+                                ? '2px solid rgba(6,182,212,0.8)'
+                                : selectedFile
+                                    ? '2px solid rgba(16,185,129,0.5)'
+                                    : '2px dashed rgba(6,182,212,0.3)',
+                            borderRadius: '16px',
+                            padding: '32px 24px',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            background: isDragging
+                                ? 'rgba(6,182,212,0.08)'
+                                : selectedFile
+                                    ? 'rgba(16,185,129,0.06)'
+                                    : 'rgba(6,182,212,0.04)',
+                            transform: isDragging ? 'scale(1.02)' : 'scale(1)',
+                            boxShadow: isDragging ? '0 0 30px rgba(6,182,212,0.2)' : 'none'
+                        }}
+                    >
+                        <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="application/pdf" className="hidden" />
 
-                    {!selectedScan ? (
-                        <div className="space-y-4">
-                            <div className="inline-block p-4 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-xl">
-                                <svg className="w-10 h-10 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                </svg>
-                            </div>
+                        {selectedFile ? (
                             <div>
-                                <p className="text-lg font-semibold text-slate-700">Medical Scan</p>
-                                <p className="text-sm text-slate-400">Optional (X-ray, MRI)</p>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="inline-block p-4 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-xl">
-                                <svg className="w-10 h-10 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                            </div>
-                            <div>
-                                <p className="text-lg font-semibold text-emerald-700">Scan Selected</p>
-                                <p className="text-slate-600 text-sm truncate px-2">{selectedScan.name}</p>
+                                <div style={{
+                                    width: '64px', height: '64px', margin: '0 auto 16px',
+                                    background: 'rgba(16,185,129,0.2)', borderRadius: '16px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}>
+                                    <svg width="32" height="32" fill="none" stroke="#10b981" strokeWidth="2" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </div>
+                                <p style={{ color: '#10b981', fontWeight: 700, marginBottom: '6px' }}>PDF Ready</p>
+                                <p style={{ color: '#94a3b8', fontSize: '0.85rem', wordBreak: 'break-all' }}>{selectedFile.name}</p>
+                                <p style={{ color: '#475569', fontSize: '0.78rem', marginTop: '4px' }}>{fmtSize(selectedFile.size)}</p>
                                 <button
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        setSelectedScan(null)
-                                    }}
-                                    className="text-xs text-red-500 hover:text-red-700 font-medium underline mt-1"
-                                >
-                                    Remove Scan
-                                </button>
+                                    onClick={(e) => { e.stopPropagation(); setSelectedFile(null) }}
+                                    style={{ marginTop: '12px', color: '#ef4444', fontSize: '0.78rem', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                                >Remove</button>
                             </div>
+                        ) : (
+                            <div>
+                                <div style={{
+                                    width: '64px', height: '64px', margin: '0 auto 16px',
+                                    background: 'rgba(6,182,212,0.15)', borderRadius: '16px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}>
+                                    <svg width="32" height="32" fill="none" stroke="#06b6d4" strokeWidth="2" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                    </svg>
+                                </div>
+                                <p style={{ color: '#e2e8f0', fontWeight: 700, marginBottom: '6px' }}>PDF Clinical Report</p>
+                                <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Drop here or click to browse</p>
+                                <span className="medical-badge badge-info" style={{ marginTop: '12px', display: 'inline-flex' }}>Required</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Scan/Image Zone */}
+                    <div
+                        onClick={() => scanInputRef.current?.click()}
+                        style={{
+                            border: selectedScan
+                                ? '2px solid rgba(16,185,129,0.5)'
+                                : '2px dashed rgba(99,102,241,0.3)',
+                            borderRadius: '16px',
+                            padding: '32px 24px',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            background: selectedScan ? 'rgba(16,185,129,0.06)' : 'rgba(99,102,241,0.04)'
+                        }}
+                    >
+                        <input type="file" ref={scanInputRef} onChange={handleScanSelect} accept="image/png,image/jpeg" className="hidden" />
+
+                        {selectedScan ? (
+                            <div>
+                                <div style={{
+                                    width: '64px', height: '64px', margin: '0 auto 16px',
+                                    background: 'rgba(16,185,129,0.2)', borderRadius: '16px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}>
+                                    <svg width="32" height="32" fill="none" stroke="#10b981" strokeWidth="2" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </div>
+                                <p style={{ color: '#10b981', fontWeight: 700, marginBottom: '6px' }}>Scan Ready</p>
+                                <p style={{ color: '#94a3b8', fontSize: '0.85rem', wordBreak: 'break-all' }}>{selectedScan.name}</p>
+                                <p style={{ color: '#475569', fontSize: '0.78rem', marginTop: '4px' }}>{fmtSize(selectedScan.size)}</p>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setSelectedScan(null) }}
+                                    style={{ marginTop: '12px', color: '#ef4444', fontSize: '0.78rem', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                                >Remove</button>
+                            </div>
+                        ) : (
+                            <div>
+                                <div style={{
+                                    width: '64px', height: '64px', margin: '0 auto 16px',
+                                    background: 'rgba(99,102,241,0.15)', borderRadius: '16px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}>
+                                    <svg width="32" height="32" fill="none" stroke="#818cf8" strokeWidth="2" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                </div>
+                                <p style={{ color: '#e2e8f0', fontWeight: 700, marginBottom: '6px' }}>Medical Scan / Image</p>
+                                <p style={{ color: '#64748b', fontSize: '0.85rem' }}>X-ray, MRI, CT (JPG/PNG)</p>
+                                <span className="medical-badge badge-warning" style={{ marginTop: '12px', display: 'inline-flex' }}>Optional</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Submit Button */}
+                {selectedFile && (
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '32px' }}>
+                        <button onClick={handleSubmit} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '1.1rem' }}>
+                            <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            Start Cascade Analysis
+                            {selectedScan && <span style={{ fontSize: '0.8em', opacity: 0.8, marginLeft: '4px' }}>+ Scan</span>}
+                        </button>
+                    </div>
+                )}
+
+                {/* Cascade Feature Grid */}
+                <div style={{
+                    borderTop: '1px solid rgba(6,182,212,0.1)',
+                    paddingTop: '28px',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                    gap: '16px'
+                }}>
+                    {[
+                        { val: '3', label: 'Cascade Layers', sub: 'Sequential validation' },
+                        { val: '5', label: 'AI Specialists', sub: 'Parallel analysis' },
+                        { val: 'LLM', label: 'Cross-Validator', sub: 'Conflict resolution' },
+                        { val: 'XAI', label: 'Explainability', sub: 'Evidence-annotated' },
+                    ].map(s => (
+                        <div key={s.label} className="stat-card" style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '1.8rem', fontWeight: 900, background: 'linear-gradient(135deg,#06b6d4,#818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginBottom: '4px' }}>{s.val}</div>
+                            <div style={{ color: '#94a3b8', fontSize: '0.8rem', fontWeight: 600 }}>{s.label}</div>
+                            <div style={{ color: '#475569', fontSize: '0.72rem', marginTop: '2px' }}>{s.sub}</div>
                         </div>
-                    )}
+                    ))}
                 </div>
             </div>
 
-            {/* Submit Button */}
-            {selectedFile && (
-                <div className="mt-8 flex justify-center">
-                    <button onClick={handleSubmit} className="btn-primary group">
-                        <div className="flex items-center gap-3">
-                            <svg
-                                className="w-6 h-6 group-hover:rotate-12 transition-transform"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M13 10V3L4 14h7v7l9-11h-7z"
-                                />
-                            </svg>
-                            <span className="text-lg">Start AI Analysis</span>
-                        </div>
-                    </button>
-                </div>
-            )}
-
-            {/* Feature Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-10 pt-8 border-t border-slate-200">
-                <div className="stat-card text-center group hover:scale-105 transition-transform">
-                    <div className="text-3xl font-bold text-blue-600 mb-2">4</div>
-                    <div className="text-sm font-medium text-slate-600">Processing Layers</div>
-                    <div className="text-xs text-slate-400 mt-1">Sequential validation</div>
-                </div>
-                <div className="stat-card text-center group hover:scale-105 transition-transform">
-                    <div className="text-3xl font-bold text-indigo-600 mb-2">5</div>
-                    <div className="text-sm font-medium text-slate-600">AI Specialists</div>
-                    <div className="text-xs text-slate-400 mt-1">Parallel analysis</div>
-                </div>
-                <div className="stat-card text-center group hover:scale-105 transition-transform">
-                    <div className="text-3xl font-bold text-emerald-600 mb-2">100%</div>
-                    <div className="text-sm font-medium text-slate-600">Explainable</div>
-                    <div className="text-xs text-slate-400 mt-1">With evidence</div>
-                </div>
+            {/* Specialists Info */}
+            <div style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' }}>
+                {Object.values(SPECIALIST_ICONS).map(s => (
+                    <div key={s.label} className="glass-card-light" style={{ padding: '14px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.6rem', marginBottom: '6px' }}>{s.icon}</div>
+                        <div style={{ color: '#67e8f9', fontSize: '0.7rem', fontWeight: 600, lineHeight: 1.3 }}>{s.label}</div>
+                    </div>
+                ))}
             </div>
         </div>
     )

@@ -16,9 +16,9 @@ import shutil
 from datetime import datetime
 
 app = FastAPI(
-    title="Universal AI Disease Prediction Engine",
-    description="Multi-layer AI system for medical diagnosis with explainability",
-    version="1.0.0"
+    title="MediCascade AI — Multi-Layer Disease Prediction Engine",
+    description="Three-layer cascade AI system for medical diagnosis with specialist cross-validation and XAI explainability",
+    version="2.0.0"
 )
 
 app.add_middleware(
@@ -43,17 +43,19 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    
-    try:
-        from utils.ollama_client import ollama_client
-        test_response = ollama_client.generate("Test", temperature=0.1)
-        ollama_status = "connected" if test_response else "disconnected"
-    except:
-        ollama_status = "error"
-    
+    hf_status = "configured" if settings.HF_API_TOKEN else "missing_token"
     return {
         "status": "healthy",
-        "ollama": ollama_status,
+        "hf_api": hf_status,
+        "models": {
+            "imaging":    settings.HF_IMAGING_MODEL,
+            "symptoms":   settings.HF_SYMPTOM_MODEL,
+            "lab":        settings.HF_LAB_MODEL,
+            "literature": settings.HF_LITERATURE_MODEL,
+            "risk":       settings.HF_RISK_LM_MODEL,
+            "validator":  settings.HF_VALIDATOR_MODEL,
+            "explainer":  settings.HF_EXPLAINER_MODEL,
+        },
         "timestamp": datetime.now().isoformat()
     }
 
@@ -112,6 +114,25 @@ async def diagnose(file: UploadFile = File(...), scan: UploadFile = File(None)):
         print(f"[API] Confidence: {layer2_diagnosis.confidence:.0%}")
         print(f"{'='*60}\n")
         
+        # Serialize layer1 specialist opinions for frontend cascade visualization
+        layer1_opinions = [
+            {
+                "model_name": op.model_name,
+                "diagnosis": op.diagnosis,
+                "confidence": op.confidence,
+                "reasoning": op.reasoning,
+                "detected_conditions": op.detected_conditions,
+                "key_findings": op.key_findings
+            }
+            for op in layer1_output.specialist_opinions
+        ]
+        
+        # Resolve conflicts description for layer2
+        conflicts_desc = ""
+        diagnoses_set = {op.diagnosis.lower() for op in layer1_output.specialist_opinions if op.confidence > 0.3}
+        if len(diagnoses_set) > 1:
+            conflicts_desc = f"Specialists disagreed on: {', '.join(list(diagnoses_set)[:3])}. Resolved to highest-weighted consensus."
+        
         response_dict = {
             "success": True,
             "primary_diagnosis": layer2_diagnosis.primary_diagnosis,
@@ -120,9 +141,26 @@ async def diagnose(file: UploadFile = File(...), scan: UploadFile = File(None)):
             "secondary_diagnoses": layer2_diagnosis.secondary_diagnoses,
             "cross_validation_score": layer2_diagnosis.cross_validation_score,
             "anomaly_detected": layer2_diagnosis.anomaly_detected,
+            "anomaly_description": layer2_diagnosis.anomaly_description,
             "explanation_text": layer3_report.explanation_text,
             "annotated_pdf_path": layer3_report.annotated_pdf_path,
-            "total_processing_time": total_elapsed
+            "total_processing_time": total_elapsed,
+            "layer1_opinions": layer1_opinions,
+            "layer2_validation": {
+                "primary_diagnosis": layer2_diagnosis.primary_diagnosis,
+                "confidence": layer2_diagnosis.confidence,
+                "cross_validation_score": layer2_diagnosis.cross_validation_score,
+                "reasoning": layer2_diagnosis.reasoning,
+                "anomaly_detected": layer2_diagnosis.anomaly_detected,
+                "anomaly_message": layer2_diagnosis.anomaly_description,
+                "conflicts": conflicts_desc,
+                "num_specialists_used": len([op for op in layer1_output.specialist_opinions if op.confidence > 0.3])
+            },
+            "layer3_xai": {
+                "explanation_text": layer3_report.explanation_text,
+                "evidence_count": len(layer3_report.evidence_items),
+                "annotated_pdf_path": layer3_report.annotated_pdf_path
+            }
         }
         
         return response_dict

@@ -1,16 +1,33 @@
+"""
+Layer 2 — Cross-Validation
+Model: google/medgemma-4b-it (MedGemma 27B text proxy via HF API)
+Purpose: Examines all specialist outputs collectively, resolves contradictions,
+         confirms or rejects predictions, produces one unified diagnosis.
+"""
 
-from utils.ollama_client import ollama_client
+from utils.hf_client import hf_client
 from schemas import Layer1Output, FinalDiagnosis, SpecialistOpinion
+from config import settings
 import numpy as np
 import time
-from typing import List, Dict, Any
+import re
+from typing import List, Dict, Any, Optional
 import json
 
 class Layer2Validator:
 
-    def __init__(self):
-        self.ollama = ollama_client
-    
+    VALIDATOR_MODEL = settings.HF_VALIDATOR_MODEL   # google/medgemma-4b-it
+    DISPLAY_NAME = "MedGemma-4B (Cross-Validation)"
+
+    SPECIALIST_WEIGHTS = {
+        "scan_analyzer":        1.5,   # Imaging — high signal specificity
+        "lab_analyzer":         1.3,   # Labs — objective, quantitative
+        "symptom_analyzer":     1.2,   # Clinical NLP
+        "literature_analyzer":  1.1,   # Evidence-based
+        "risk_analyzer":        0.9,   # Risk scoring
+        "notes_analyzer":       1.0,   # Fallback
+    }
+
     def process(self, layer1_output: Layer1Output) -> FinalDiagnosis:
         
         print("[Layer 2] Validating specialist opinions...")
@@ -70,23 +87,40 @@ class Layer2Validator:
         avg_confidence = sum(op.confidence for op in valid_opinions) / len(valid_opinions)
         return min((overlap_score + avg_confidence) / 2, 1.0)
     
+    def _detect_conflicts(self, opinions: List[SpecialistOpinion]) -> tuple:
+        """Identify specialists disagreeing on primary diagnosis."""
+        if len(opinions) < 2:
+            return "", 0
+        diagnoses = [op.diagnosis.lower().split('(')[0].strip() for op in opinions if op.confidence > 0.3]
+        unique = set(diagnoses)
+        if len(unique) <= 1:
+            return "All specialists in agreement", 0
+        # Find two most common, determine conflict
+        from collections import Counter
+        counts = Counter(diagnoses)
+        top = counts.most_common(2)
+        if len(top) >= 2 and top[0][1] != top[1][1]:
+            conflict_desc = f"{top[0][0].title()} vs {top[1][0].title()} — resolved by weighted consensus"
+        else:
+            conflict_desc = f"{len(unique)} distinct diagnoses across specialists"
+        return conflict_desc, len(unique) - 1
+
     def _detect_anomalies(self, opinions: List[SpecialistOpinion]) -> tuple:
-        """Simplified anomaly detection without ML"""
+        """Statistical anomaly detection across specialist confidence scores."""
         if not opinions:
             return False, ""
-            
-        # Example of a simple heuristic anomaly detection
-        low_conf_specialists = [op for op in opinions if op.confidence < 0.2]
-        if len(low_conf_specialists) > len(opinions) / 2:
-            return True, "Major consensus conflicts - multiple low confidence opinions"
-            
+        low_conf = [op for op in opinions if op.confidence < 0.2]
+        if len(low_conf) > len(opinions) / 2:
+            return True, "Majority of specialists report very low confidence — data may be insufficient"
+        # High variance in confidence (> 0.4 std)
+        confs = [op.confidence for op in opinions]
+        if len(confs) >= 3 and np.std(confs) > 0.40:
+            return True, f"High variance in specialist confidence scores (σ={np.std(confs):.2f}) — conflicting signals"
         return False, ""
-    
-    def _make_decision_fast(self, opinions: List[SpecialistOpinion], 
-                           cross_val_score: float, anomaly_detected: bool) -> Dict[str, Any]:
 
+    def _make_decision_fast(self, opinions, cross_val_score, anomaly):
         return self._smart_fallback(opinions, cross_val_score)
-    
+
     def _smart_fallback(self, opinions: List[SpecialistOpinion], cross_val_score: float) -> Dict[str, Any]:
         
         if not opinions:

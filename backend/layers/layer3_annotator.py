@@ -1,5 +1,15 @@
+"""
+Layer 3 — XAI Explanation
+Models:
+  • SHAP          — Feature importance scores from specialist outputs
+  • Grad-CAM      — Gradient-weighted class activation maps (imaging)
+  • google/medgemma-4b-it — Human-readable clinical explanation for doctor
 
-from utils.ollama_client import ollama_client
+Purpose: Explains the AI's diagnosis process in plain language to the doctor,
+         identifies which features drove the decision, and annotates reports/images.
+"""
+
+from utils.hf_client import hf_client
 from utils.image_annotator import image_annotator
 from utils.pdf_annotator import pdf_annotator
 from schemas import FinalDiagnosis, PatientData, AnnotatedReport, Evidence
@@ -7,13 +17,16 @@ from config import settings
 import os
 import time
 import base64
+import re
 from typing import List
 
 class Layer3Annotator:
 
+    EXPLAINER_MODEL = "google/medgemma-4b-it"
+
     def __init__(self):
-        self.ollama = ollama_client
-    
+        pass  # All model calls via hf_client
+
     def process(self, diagnosis: FinalDiagnosis, patient_data: PatientData, layer1_output=None) -> AnnotatedReport:
         
         print("[Layer 3] Generating explanation and annotations...")
@@ -222,101 +235,34 @@ Structure:
 Target: 500-700 High-Depth words. Be academically rigorous but fast."""
 
         try:
-            from utils.gemini_client import gemini_client
-            print(f"[Layer 3] Generating high-speed theoretical XAI report...")
-            
-            # Use a slightly higher temperature for faster "creative flow" if needed, 
-            # but keep it low for medical accuracy. 0.3 is good.
-            response = gemini_client.generate_medical_explanation(prompt, max_tokens=1500) 
-            
+            from config import settings
+            model = settings.HF_EXPLAINER_MODEL
+            print(f"[Layer 3] Generating XAI report via {model}...")
+            response = hf_client.generate_text(model, prompt, max_new_tokens=600, temperature=0.2)
             if response and len(response.strip()) > 200:
-                print(f"[Layer 3] XAI Report generated successfully")
+                print("[Layer 3] XAI Report generated successfully")
                 return response
-                
         except Exception as e:
-            print(f"[Layer 3] Gemini explanation error: {e}")
-            
-        return self._generate_structured_fallback(diagnosis, evidence, patient_findings, specific_values)
-    
-    def _generate_structured_fallback(self, diagnosis: FinalDiagnosis, evidence: List[Evidence], patient_findings: List[str], specific_values: List[str] = None) -> str:
+            print(f"[Layer 3] MedGemma XAI error: {e}")
 
+        return self._generate_structured_fallback(diagnosis, evidence, patient_findings, specific_values)
+
+    def _generate_structured_fallback(self, diagnosis: FinalDiagnosis, evidence: List[Evidence], patient_findings: List[str], specific_values: List[str] = None) -> str:
+        """Plain-text fallback when MedGemma is unavailable."""
         if specific_values is None:
             specific_values = []
-        
         findings_section = "\n".join(patient_findings[:5])
-        values_display = "\n".join(specific_values) if specific_values else "No specific numerical values extracted from patient data"
-        
-        alternatives = ""
+        values_display = "\n".join(specific_values) if specific_values else "No specific values extracted"
+        alternatives = "• No significant alternatives identified"
         if diagnosis.secondary_diagnoses:
-            alt_items = []
-            for s in diagnosis.secondary_diagnoses[:3]:
-                alt_items.append(f"• {s['diagnosis']} ({s['confidence']:.0%})")
-            alternatives = "\n".join(alt_items)
-        else:
-            alternatives = "• No significant alternative diagnoses identified"
-        
-        # FIXED: Removed double backslashes which caused literal "\n" to appear in PDF
-        return f"**Clinical Assessment:**\n{diagnosis.primary_diagnosis} is indicated by:\n{findings_section}\n\n**Key Data:**\n{values_display}\n\n**Differential:**\n{alternatives}"
+            alternatives = "\n".join(
+                f"• {s['diagnosis']} ({s['confidence']:.0%})" for s in diagnosis.secondary_diagnoses[:3]
+            )
+        return (
+            f"**Clinical Assessment:**\n{diagnosis.primary_diagnosis} is indicated by:\n"
+            f"{findings_section}\n\n**Key Data:**\n{values_display}\n\n**Differential:**\n{alternatives}"
+        )
 
-        prompt = f"Explain the medical diagnosis of {diagnosis.primary_diagnosis} given these symptoms:\\n{findings_section}"
-
-        try:
-            response = self.ollama.generate(prompt, temperature=0.3, max_tokens=300)
-            
-            if response and len(response.strip()) > 50:
-                formatted = response
-                print(f"[Layer 3] Generated disease explanation for: {diagnosis}")
-                return formatted
-        except Exception as e:
-            print(f"[Layer 3] Disease explanation error: {e}")
-        
-        return f"Diagnosis: {diagnosis.primary_diagnosis}. Evidence: {findings_section}"
-    
-    def _generate_xai_explanation(self, diagnosis: FinalDiagnosis, evidence: List[Evidence]) -> str:
-
-        evidence_list = []
-        for ev in evidence[:5]:
-            evidence_list.append(f"• {ev.text[:120]}")
-        evidence_text = "\n".join(evidence_list)
-        
-        secondary_list = []
-        for s in diagnosis.secondary_diagnoses[:3]:
-            secondary_list.append(f"• {s['diagnosis']} ({s['confidence']:.0%} probability)")
-        secondaries_text = "\n".join(secondary_list) if secondary_list else "None"
-        
-        prompt = f
-
-        try:
-            response = self.ollama.generate(prompt, temperature=0.4, max_tokens=600)
-            
-            if response and len(response.strip()) > 100:
-                xai_output = f
-                
-                print("[Layer 3] Generated clear XAI explanation")
-                return xai_output
-        
-        except Exception as e:
-            print(f"[Layer 3] Ollama XAI error: {e}")
-        
-        return ""
-    
-    def _generate_fallback_explanation(self, diagnosis: FinalDiagnosis, evidence: List[Evidence]) -> str:
-
-        evidence_bullets = []
-        for ev in evidence[:4]:
-            evidence_bullets.append(f"• {ev.text[:100]}...")
-        
-        secondary_text = ""
-        if diagnosis.secondary_diagnoses and len(diagnosis.secondary_diagnoses) > 0:
-            secondary_bullets = []
-            for s in diagnosis.secondary_diagnoses[:3]:
-                secondary_bullets.append(f"• {s['diagnosis']} - {s['confidence']:.0%} probability")
-            secondary_text = f
-        
-        explanation = f
-
-        return explanation
-    
     def _annotate_images(self, images_base64: List[str], diagnosis: str) -> List[str]:
         
         annotated_paths = []

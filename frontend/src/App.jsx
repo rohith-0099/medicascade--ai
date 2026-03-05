@@ -4,6 +4,21 @@ import LoadingProgress from './components/LoadingProgress'
 import ResultsDashboard from './components/ResultsDashboard'
 import AIDebugView from './components/AIDebugView'
 
+/* ── Sidebar nav items ──────────────────────────────────────── */
+const NAV = [
+    { icon: '🏠', label: 'Dashboard', id: 'home' },
+    { icon: '📄', label: 'Upload Report', id: 'upload' },
+    { icon: '📊', label: 'Results', id: 'results' },
+    { icon: '🔬', label: 'AI Debug View', id: 'debug' },
+]
+
+const ARCHITECTURE_LAYERS = [
+    { n: '0', label: 'Data Extraction', cls: 'layer-0', detail: 'pdfplumber + PyPDF2' },
+    { n: '1', label: '5 Specialists', cls: 'layer-1', detail: 'MedGemma · GatorTron · BioGPT' },
+    { n: '2', label: 'Cross-Validation', cls: 'layer-2', detail: 'MedGemma-4B LLM' },
+    { n: '3', label: 'XAI Explainer', cls: 'layer-3', detail: 'SHAP + Grad-CAM + MedGemma' },
+]
+
 function App() {
     const [state, setState] = useState({
         isProcessing: false,
@@ -12,229 +27,246 @@ function App() {
         results: null,
         error: null
     })
-
-    // Simulated progress tracking
+    const [activeNav, setActiveNav] = useState('home')
     const progressInterval = useRef(null)
 
     const handleFileUpload = async (file, scan) => {
-        setState({
-            isProcessing: true,
-            progress: 0,
-            currentLayer: 'Uploading files...',
-            results: null,
-            error: null
-        })
+        setState({ isProcessing: true, progress: 0, currentLayer: 'Uploading patient data...', results: null, error: null })
+        setActiveNav('upload')
 
         const formData = new FormData()
         formData.append('file', file)
-        if (scan) {
-            formData.append('scan', scan)
-        }
+        if (scan) formData.append('scan', scan)
 
-        // Start progress simulation
         startProgressSimulation()
 
         try {
-            const response = await fetch('/api/diagnose', {
-                method: 'POST',
-                body: formData
-            })
-
-            if (!response.ok) {
-                throw new Error(`Server error: ${response.status}`)
-            }
-
+            const response = await fetch('/api/diagnose', { method: 'POST', body: formData })
+            if (!response.ok) throw new Error(`Server error: ${response.status}`)
             const data = await response.json()
-
-            // Stop simulation and show 100%
             stopProgressSimulation()
-
-            setState({
-                isProcessing: false,
-                progress: 100,
-                currentLayer: 'Analysis complete!',
-                results: data,
-                error: null
-            })
+            setState({ isProcessing: false, progress: 100, currentLayer: 'Analysis complete!', results: data, error: null })
+            setActiveNav('results')
         } catch (error) {
-            console.error('Diagnosis error:', error)
             stopProgressSimulation()
-            setState(prev => ({
-                ...prev,
-                isProcessing: false,
-                error: error.message
-            }))
+            setState(prev => ({ ...prev, isProcessing: false, error: error.message }))
         }
     }
 
     const startProgressSimulation = () => {
-        // Clear any existing interval
-        if (progressInterval.current) {
-            clearInterval(progressInterval.current)
-        }
-
-        let currentProgress = 0
+        if (progressInterval.current) clearInterval(progressInterval.current)
         const layers = [
-            { progress: 20, label: 'Layer 0: Extracting data from PDF...' },
-            { progress: 35, label: 'Layer 0: Classifying text sections...' },
-            { progress: 50, label: 'Layer 1: Running 5 AI specialists in parallel...' },
-            { progress: 60, label: 'Layer 1: Symptom analysis...' },
-            { progress: 65, label: 'Layer 1: Lab result analysis...' },
-            { progress: 70, label: 'Layer 1: Medical image detection...' },
-            { progress: 75, label: 'Layer 2: Cross-validating findings...' },
-            { progress: 82, label: 'Layer 2: Resolving conflicts...' },
-            { progress: 88, label: 'Layer 3: Generating explanation...' },
-            { progress: 94, label: 'Layer 3: Annotating images...' },
-            { progress: 98, label: 'Layer 3: Creating PDF report...' }
+            { progress: 10, label: 'Layer 0 — Reading patient PDF...' },
+            { progress: 20, label: 'Layer 0 — Extracting text & tables...' },
+            { progress: 30, label: 'Layer 0 — Classifying data sections...' },
+            { progress: 42, label: 'Layer 1 — Launching 5 specialist models...' },
+            { progress: 52, label: 'Layer 1 — Symptom analysis (GatorTron)...' },
+            { progress: 60, label: 'Layer 1 — Lab interpretation (MedGemma)...' },
+            { progress: 66, label: 'Layer 1 — Imaging analysis (MedGemma)...' },
+            { progress: 72, label: 'Layer 1 — Literature matching (BioGPT)...' },
+            { progress: 78, label: 'Layer 1 — Risk scoring (LightGBM + OpenMed)...' },
+            { progress: 84, label: 'Layer 2 — Cross-validating specialist reports...' },
+            { progress: 89, label: 'Layer 2 — Resolving conflicts & anomaly detection...' },
+            { progress: 93, label: 'Layer 3 — Generating XAI explanation (MedGemma)...' },
+            { progress: 97, label: 'Layer 3 — Annotating evidence & building report...' },
+            { progress: 98, label: 'Finalising diagnosis...' },
         ]
-
-        let layerIndex = 0
-
+        let idx = 0
         progressInterval.current = setInterval(() => {
-            if (layerIndex < layers.length) {
-                const layer = layers[layerIndex]
-                setState(prev => ({
-                    ...prev,
-                    progress: layer.progress,
-                    currentLayer: layer.label
-                }))
-                layerIndex++
-            } else {
-                // Keep at 98% until response comes
-                setState(prev => ({
-                    ...prev,
-                    progress: 98,
-                    currentLayer: 'Finalizing analysis...'
-                }))
+            if (idx < layers.length) {
+                const layer = layers[idx]
+                setState(prev => ({ ...prev, progress: layer.progress, currentLayer: layer.label }))
+                idx++
             }
-        }, 1500) // Update every 1.5 seconds
+        }, 1800)
     }
 
     const stopProgressSimulation = () => {
-        if (progressInterval.current) {
-            clearInterval(progressInterval.current)
-            progressInterval.current = null
-        }
+        if (progressInterval.current) { clearInterval(progressInterval.current); progressInterval.current = null }
     }
 
     const handleReset = () => {
         stopProgressSimulation()
-        setState({
-            isProcessing: false,
-            progress: 0,
-            currentLayer: '',
-            results: null,
-            error: null
-        })
+        setState({ isProcessing: false, progress: 0, currentLayer: '', results: null, error: null })
+        setActiveNav('home')
     }
 
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
-            if (progressInterval.current) {
-                clearInterval(progressInterval.current)
-            }
-        }
-    }, [])
+    useEffect(() => () => { if (progressInterval.current) clearInterval(progressInterval.current) }, [])
 
     return (
-        <div className="min-h-screen py-6 px-4 sm:py-12">
-            <div className="max-w-7xl mx-auto">
-                {/* Premium Header */}
-                <header className="text-center mb-8 sm:mb-12 fade-in">
-                    <div className="inline-flex items-center justify-center mb-6">
-                        <div className="relative">
-                            <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-3xl blur-xl opacity-30 animate-pulse"></div>
-                            <div className="relative w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-3xl flex items-center justify-center shadow-2xl">
-                                <svg className="w-12 h-12 sm:w-14 sm:h-14 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                                </svg>
-                            </div>
-                        </div>
-                    </div>
+        <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
 
-                    <h1 className="text-4xl sm:text-6xl font-bold mb-3 medical-header">
-                        MedicaScade AI
-                    </h1>
-                    <div className="flex items-center justify-center gap-2 mb-3">
-                        <div className="h-1 w-12 bg-gradient-to-r from-transparent to-blue-500 rounded-full"></div>
-                        <p className="text-lg sm:text-2xl text-slate-600 font-medium">
-                            Universal Disease Prediction Engine
-                        </p>
-                        <div className="h-1 w-12 bg-gradient-to-l from-transparent to-blue-500 rounded-full"></div>
-                    </div>
-                    <p className="text-sm text-slate-500 max-w-2xl mx-auto">
-                        Multi-layer AI diagnostic system powered by 5 specialist models
-                    </p>
+            {/* ── Sidebar ──────────────────────────────────────────── */}
+            <aside className="sidebar" style={{ width: '240px', flexShrink: 0 }}>
 
-                    {/* Trust Badges */}
-                    <div className="flex flex-wrap items-center justify-center gap-4 mt-6">
-                        <div className="medical-badge badge-info">
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            HIPAA Compliant
-                        </div>
-                        <div className="medical-badge badge-success">
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-                                <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm9.707 5.707a1 1 0 00-1.414-1.414L9 12.586l-1.293-1.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            FDA Cleared
-                        </div>
-                        <div className="medical-badge badge-info">
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            ISO 13485
-                        </div>
+                {/* Logo */}
+                <div className="sidebar-logo">
+                    <div className="sidebar-logo-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                            <rect x="10" y="2" width="4" height="20" rx="2" fill="white" />
+                            <rect x="2" y="10" width="20" height="4" rx="2" fill="white" />
+                        </svg>
                     </div>
-                </header>
+                    <div>
+                        <div className="sidebar-title">MediCascade AI</div>
+                        <div className="sidebar-subtitle">Disease Prediction Engine</div>
+                    </div>
+                </div>
 
-                {/* Error Display */}
+                <hr className="sidebar-divider" />
+
+                {/* Nav */}
+                <div className="sidebar-section">Navigation</div>
+                {NAV.map(item => (
+                    <div
+                        key={item.id}
+                        className={`sidebar-item ${activeNav === item.id ? 'active' : ''}`}
+                        onClick={() => {
+                            if (item.id === 'results' && !state.results) return
+                            if (item.id === 'debug' && !state.results) return
+                            setActiveNav(item.id)
+                        }}
+                        style={{ opacity: (item.id === 'results' || item.id === 'debug') && !state.results ? 0.4 : 1 }}
+                    >
+                        <span className="icon">{item.icon}</span>
+                        {item.label}
+                    </div>
+                ))}
+
+                <hr className="sidebar-divider" />
+
+                {/* Architecture info */}
+                <div className="sidebar-section">Architecture</div>
+                {ARCHITECTURE_LAYERS.map(l => (
+                    <div key={l.n} style={{ padding: '6px 12px', marginBottom: '2px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                            <span className={`layer-badge ${l.cls}`} style={{ padding: '2px 8px 2px 4px', fontSize: '10px' }}>
+                                <span className="dot" style={{ width: '16px', height: '16px', fontSize: '10px' }}>{l.n}</span>
+                                {l.label}
+                            </span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', paddingLeft: '4px' }}>{l.detail}</div>
+                    </div>
+                ))}
+
+                <hr className="sidebar-divider" />
+
+                {/* Status indicator */}
+                <div style={{ padding: '8px 12px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>System</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--accent)' }}>
+                        <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--accent)', flexShrink: 0, boxShadow: '0 0 6px var(--accent-glow)' }} />
+                        Backend Connected
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>HF Token ✓ · 5 Models Ready</div>
+                </div>
+            </aside>
+
+            {/* ── Main ─────────────────────────────────────────────── */}
+            <main style={{ flex: 1, padding: '32px 40px', maxWidth: '1100px' }}>
+
+                {/* ── Page Header ─────────────────────────────────── */}
+                <div className="page-header fade-in">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                            <h1 className="page-title">
+                                {activeNav === 'home' && 'Dashboard'}
+                                {activeNav === 'upload' && 'Upload Patient Report'}
+                                {activeNav === 'results' && 'Diagnosis Results'}
+                                {activeNav === 'debug' && 'AI Debug View'}
+                            </h1>
+                            <p className="page-description">
+                                {activeNav === 'home' && 'Upload a patient PDF to run the full cascade diagnosis pipeline.'}
+                                {activeNav === 'upload' && 'Provide a medical report PDF and optionally a scan image.'}
+                                {activeNav === 'results' && 'Cross-validated diagnosis from 5 specialist models + XAI explanation.'}
+                                {activeNav === 'debug' && 'Raw specialist opinions and model confidence scores.'}
+                            </p>
+                        </div>
+                        {state.results && (
+                            <button className="btn-secondary" onClick={handleReset}>← New Analysis</button>
+                        )}
+                    </div>
+                </div>
+
+                {/* ── Error ───────────────────────────────────────── */}
                 {state.error && (
-                    <div className="card-premium mb-8 bg-red-50 border-red-200 slide-up">
-                        <div className="flex items-start">
-                            <div className="flex-shrink-0">
-                                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                            </div>
-                            <div className="ml-3 flex-1">
-                                <h3 className="font-semibold text-red-900 mb-1">Analysis Error</h3>
-                                <p className="text-red-700 text-sm">{state.error}</p>
-                                <button onClick={handleReset} className="mt-3 text-sm text-blue-600 hover:text-blue-700 font-medium underline">
-                                    Try again →
-                                </button>
-                            </div>
-                        </div>
+                    <div className="error-box slide-up" style={{ marginBottom: '24px' }}>
+                        <strong>Analysis Error:</strong> {state.error}
+                        <button onClick={handleReset} style={{ marginLeft: '12px', fontWeight: 600, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                            Try again
+                        </button>
                     </div>
                 )}
 
-                {/* Main Content */}
+                {/* ── Content ─────────────────────────────────────── */}
                 <div className="slide-up">
-                    {!state.results && !state.isProcessing && (
+
+                    {/* Dashboard home — quick stats + upload CTA */}
+                    {activeNav === 'home' && !state.results && !state.isProcessing && (
+                        <>
+                            {/* Metric row */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '28px' }}>
+                                {[
+                                    { label: 'Specialist Models', value: '5', delta: 'MedGemma · GatorTron · BioGPT' },
+                                    { label: 'Architecture Layers', value: '4', delta: 'L0 → L1 → L2 → L3' },
+                                    { label: 'Cross-Validation', value: '100%', delta: 'All specialists checked' },
+                                    { label: 'XAI Output', value: '✓', delta: 'SHAP + Grad-CAM' },
+                                ].map(m => (
+                                    <div key={m.label} className="metric-card">
+                                        <div className="metric-label">{m.label}</div>
+                                        <div className="metric-value">{m.value}</div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{m.delta}</div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Info box */}
+                            <div className="info-box" style={{ marginBottom: '24px' }}>
+                                <strong>ℹ️  How it works:</strong> Upload a patient medical report PDF (lab results, clinical notes, imaging reports, history).
+                                The system runs 5 specialist AI models in parallel, cross-validates their outputs, and generates an XAI-annotated diagnosis report.
+                            </div>
+
+                            {/* Upload section */}
+                            <UploadSection onFileUpload={handleFileUpload} />
+                        </>
+                    )}
+
+                    {/* Upload tab */}
+                    {activeNav === 'upload' && !state.isProcessing && !state.results && (
                         <UploadSection onFileUpload={handleFileUpload} />
                     )}
 
+                    {/* Processing */}
                     {state.isProcessing && (
                         <LoadingProgress progress={state.progress} currentLayer={state.currentLayer} />
                     )}
 
-                    {state.results && !state.isProcessing && (
+                    {/* Results */}
+                    {state.results && !state.isProcessing && activeNav === 'results' && (
+                        <ResultsDashboard results={state.results} onReset={handleReset} />
+                    )}
+
+                    {/* Debug */}
+                    {state.results && !state.isProcessing && activeNav === 'debug' && (
+                        <AIDebugView diagnosisResult={state.results} />
+                    )}
+
+                    {/* Auto-show results/debug when no explicit tab selected */}
+                    {state.results && !state.isProcessing && activeNav === 'home' && (
                         <>
                             <ResultsDashboard results={state.results} onReset={handleReset} />
-                            <AIDebugView diagnosisResult={state.results} />
+                            <div style={{ marginTop: '32px' }}>
+                                <AIDebugView diagnosisResult={state.results} />
+                            </div>
                         </>
                     )}
                 </div>
 
-                {/* Footer */}
-                <footer className="mt-12 text-center text-sm text-slate-500 fade-in">
-                    <p>Powered by advanced AI • Results validated by multiple specialist models</p>
-                    <p className="mt-2">© 2026 MedicaScade AI • For research and demonstration purposes</p>
+                {/* ── Footer ──────────────────────────────────────── */}
+                <footer style={{ marginTop: '60px', paddingTop: '20px', borderTop: '1px solid var(--border)', fontSize: '12px', color: 'var(--text-muted)' }}>
+                    MediCascade AI v2.0 · Research & Demonstration Purposes Only · © 2026
                 </footer>
-            </div>
+            </main>
         </div>
     )
 }
