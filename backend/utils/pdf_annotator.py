@@ -114,7 +114,9 @@ class PDFAnnotator:
         self._patient_summary(story, data)
         self._urgent_red_flags(story, data)
         self._primary_diagnosis(story, data)
+        self._icd10_section(story, data)
         self._differentials(story, data)
+        self._drug_safety_section(story, data)
         self._evidence_links(story, data)
         self._layer1_findings(story, data)
         self._layer2_validated(story, data)
@@ -193,25 +195,85 @@ class PDFAnnotator:
         story.append(Paragraph(f"<b>{safe(diagnosis)}</b>", self.body))
         story.append(Paragraph(f"Confidence: <b>{confidence:.0%}</b>", self.body))
 
+    def _icd10_section(self, story: List[Any], data: Dict[str, Any]):
+        icd_code = data.get("icd10_code", "")
+        icd_desc = data.get("icd10_description", "")
+        if not icd_code or icd_code == "R69":
+            return
+        self.amber = ParagraphStyle(
+            "amber",
+            parent=self.body,
+            fontSize=9.5,
+            backColor=colors.HexColor("#fef9c3"),
+            borderPadding=5,
+            leading=13,
+        )
+        story.append(Paragraph("ICD-10-CM Classification", self.h2))
+        story.append(Paragraph(
+            f"<b>Code:</b> {safe(icd_code)} &nbsp;&nbsp; <b>Description:</b> {safe(icd_desc)}",
+            getattr(self, "amber", self.body),
+        ))
+        story.append(Spacer(1, 4))
+
+    def _drug_safety_section(self, story: List[Any], data: Dict[str, Any]):
+        ds = data.get("drug_safety", {})
+        if not ds:
+            return
+        warnings       = ds.get("warnings", [])
+        interactions   = ds.get("interactions", [])
+        contraindications = ds.get("contraindications", [])
+        if not any([warnings, interactions, contraindications]):
+            return
+
+        story.append(Paragraph("FDA Drug Safety", self.h2))
+        story.append(Paragraph(
+            "The following FDA drug label data was retrieved for medications listed in this record:",
+            self.body,
+        ))
+
+        if warnings:
+            story.append(Paragraph("<b>Boxed / Serious Warnings:</b>", self.body))
+            for w in warnings[:5]:
+                story.append(Paragraph(
+                    f"<b>{safe(w.get('drug',''))}:</b> {safe(w.get('detail','')[:300])}",
+                    self.red_note,
+                ))
+
+        if interactions:
+            story.append(Paragraph("<b>Drug Interactions:</b>", self.body))
+            for i in interactions[:5]:
+                story.append(Paragraph(
+                    f"<b>{safe(i.get('drug',''))}:</b> {safe(i.get('detail','')[:300])}",
+                    self.body,
+                ))
+
+        if contraindications:
+            story.append(Paragraph("<b>Contraindications:</b>", self.body))
+            for c in contraindications[:5]:
+                story.append(Paragraph(
+                    f"<b>{safe(c.get('drug',''))}:</b> {safe(c.get('detail','')[:300])}",
+                    self.red_note,
+                ))
+        story.append(Spacer(1, 4))
+
     def _differentials(self, story: List[Any], data: Dict[str, Any]):
         story.append(Paragraph("Differential Diagnoses", self.h2))
         differentials = data.get("secondary_diagnoses", [])
         if not differentials:
             story.append(Paragraph("No additional differential diagnoses listed.", self.body))
             return
-        rows = [["Diagnosis", "Confidence", "Reason"]]
+        rows = [["Diagnosis", "ICD-10", "Conf.", "Reason"]]
         for d in differentials[:8]:
             if isinstance(d, dict):
-                rows.append(
-                    [
-                        str(d.get("diagnosis", "")),
-                        f"{float(d.get('confidence', 0.0) or 0.0):.0%}",
-                        str(d.get("reason", ""))[:120],
-                    ]
-                )
+                rows.append([
+                    str(d.get("diagnosis", ""))[:50],
+                    str(d.get("icd10_code", "—")),
+                    f"{float(d.get('confidence', 0.0) or 0.0):.0%}",
+                    str(d.get("reason", ""))[:100],
+                ])
             else:
-                rows.append([str(d), "-", ""])
-        t = Table(rows, colWidths=[64 * mm, 22 * mm, 86 * mm])
+                rows.append([str(d)[:50], "—", "-", ""])
+        t = Table(rows, colWidths=[60 * mm, 18 * mm, 16 * mm, 78 * mm])
         t.setStyle(
             TableStyle(
                 [
@@ -228,21 +290,22 @@ class PDFAnnotator:
         story.append(t)
 
     def _evidence_links(self, story: List[Any], data: Dict[str, Any]):
-        story.append(Paragraph("Evidence Links (PubMed / NICE / WHO)", self.h2))
+        story.append(Paragraph("Peer-Reviewed Evidence (PubMed / NICE / WHO)", self.h2))
         links = data.get("evidence_links", [])
         if not links:
             story.append(Paragraph("No evidence links attached.", self.body))
             return
-        rows = [["Source", "Title", "URL"]]
+        rows = [["Source", "Title / Snippet", "URL"]]
         for e in links[:16]:
-            rows.append(
-                [
-                    str(e.get("source", "")),
-                    str(e.get("title", ""))[:60],
-                    str(e.get("url", ""))[:95],
-                ]
-            )
-        t = Table(rows, colWidths=[22 * mm, 62 * mm, 88 * mm])
+            snippet = str(e.get("snippet", ""))[:120]
+            title   = str(e.get("title", ""))[:55]
+            display = f"{title}\n{snippet}" if snippet else title
+            rows.append([
+                str(e.get("source", "")),
+                display,
+                str(e.get("url", ""))[:80],
+            ])
+        t = Table(rows, colWidths=[22 * mm, 88 * mm, 62 * mm])
         t.setStyle(
             TableStyle(
                 [
@@ -250,9 +313,10 @@ class PDFAnnotator:
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8.0),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7.8),
                     ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cbd5e1")),
                     ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ]
             )
         )
@@ -292,7 +356,9 @@ class PDFAnnotator:
             ("Missing data", "missing_data"),
         ]:
             values = l2.get(key, [])
-            text = ", ".join([str(v) for v in values[:12]]) if values else "none"
+            values = [_filter_api_error(str(v)) for v in values[:12]]
+            values = [v for v in values if v]
+            text = ", ".join(values) if values else "none"
             story.append(Paragraph(f"<b>{label}:</b> {safe(text)}", self.body))
 
     def _xai(self, story: List[Any], data: Dict[str, Any]):
@@ -312,6 +378,8 @@ class PDFAnnotator:
     def _next_steps(self, story: List[Any], data: Dict[str, Any]):
         story.append(Paragraph("Recommended Next Steps / Tests", self.h2))
         steps = data.get("recommendations", [])
+        steps = [_filter_api_error(str(s)) for s in steps]
+        steps = [s for s in steps if s]
         if not steps:
             steps = ["No explicit recommendations were generated."]
         for step in steps[:10]:
@@ -393,6 +461,21 @@ def json_like(values: List[Any]) -> str:
         return json.dumps(values, ensure_ascii=True)
     except Exception:
         return str(values)
+
+
+def _filter_api_error(text: str) -> str:
+    """Return empty string if text looks like a raw API error message."""
+    lower = text.lower()
+    error_markers = [
+        "client error", "server error", "too many requests", "payload too large",
+        "rate_limit", "413 ", "429 ", "500 ", "502 ", "503 ",
+        "httpsconnectionpool", "connection aborted", "remotedisconnected",
+        "groq failed:", "openrouter fallback failed:", "body=",
+    ]
+    for marker in error_markers:
+        if marker in lower:
+            return ""
+    return text
 
 
 def safe(text: Any) -> str:

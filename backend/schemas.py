@@ -100,22 +100,31 @@ class FinalAssessment(BaseModel):
     final_assessment_path: Optional[str] = None
 
 
-# ── MRI 3D segmentation output ───────────────────────────────────────────────
+# ── MRI 3D segmentation output (nnU-Net + Plotly) ───────────────────────────
+
+class MriPlotlyMesh(BaseModel):
+    x: List[float] = Field(default_factory=list)
+    y: List[float] = Field(default_factory=list)
+    z: List[float] = Field(default_factory=list)
+    i: List[int] = Field(default_factory=list)
+    j: List[int] = Field(default_factory=list)
+    k: List[int] = Field(default_factory=list)
+    vertex_count: int = 0
+    face_count: int = 0
+
 
 class MriTumorStat(BaseModel):
     volume_cc: float = 0.0
-    confidence: float = 0.0
-    voxel_count: float = 0.0
-    voxels: float = 0.0
+    voxel_count: int = 0
 
 
 class MriAnalyzeResponse(BaseModel):
     request_id: str
-    uid: str = ""
-    meshes: Dict[str, str] = Field(default_factory=dict)
+    meshes: Dict[str, Optional[MriPlotlyMesh]] = Field(default_factory=dict)
     stats: Dict[str, MriTumorStat] = Field(default_factory=dict)
     processing_time: float = 0.0
-    input_shape: List[int] = Field(default_factory=list)
+    volume_shape: List[int] = Field(default_factory=list)
+    voxel_spacing: List[float] = Field(default_factory=list)
 
 
 # ── Compatibility models (existing pipeline) ────────────────────────────────

@@ -11,6 +11,7 @@ from schemas import (
     Layer1Findings,
 )
 from utils.pdf_annotator import pdf_annotator
+from utils.icd_mapper import get_icd10_code, get_icd10_for_differential
 
 try:
     from groq import Groq
@@ -35,10 +36,17 @@ class Layer3Annotator:
         explanation = self._narrate(final, layer1)
         evidence_items = self._build_evidence(final)
 
+        # ICD-10 coding for primary diagnosis and differentials
+        icd_code, icd_desc = get_icd10_code(final.primary_diagnosis or "")
+        enriched_differentials = get_icd10_for_differential(final.final_differentials)
+
+        # Collect FDA drug safety warnings from medication specialist
+        drug_safety = self._extract_drug_safety(layer1)
+
         final_dx = FinalDiagnosis(
             primary_diagnosis=final.primary_diagnosis or "Undetermined",
             confidence=final.confidence,
-            secondary_diagnoses=final.final_differentials,
+            secondary_diagnoses=enriched_differentials,
             reasoning=explanation,
             cross_validation_score=0.0,
             anomaly_detected=False,
@@ -46,6 +54,11 @@ class Layer3Annotator:
             conflicts_resolved=[],
             critical_points=self._critical_points_from_highlights(final),
         )
+
+        # Attach ICD code and drug safety to the report metadata
+        self._icd_code = icd_code
+        self._icd_desc = icd_desc
+        self._drug_safety = drug_safety
 
         pdf_path = self._build_pdf(case, layer1, final, final_dx, explanation, evidence_items)
 
@@ -58,6 +71,9 @@ class Layer3Annotator:
             visualization_data={
                 "layer1_agents": [v.agent for v in layer1.views],
                 "red_flags": final.final_red_flags,
+                "icd10_code": icd_code,
+                "icd10_description": icd_desc,
+                "drug_safety": drug_safety,
             },
         )
 
@@ -212,6 +228,35 @@ class Layer3Annotator:
         ]
         return "\n".join(sections).strip()
 
+    def _recommended_next_steps(self, final: FinalAssessment) -> List[str]:
+        steps = [
+            "Review urgent red flags immediately.",
+            "Correlate highlighted values with bedside clinical assessment.",
+            "Confirm key abnormalities with repeat or targeted tests.",
+        ]
+        for missing in final.missing_data[:4]:
+            steps.append(f"Obtain missing data: {missing}")
+        # Add drug safety steps if warnings exist
+        if getattr(self, "_drug_safety", None):
+            ds = self._drug_safety
+            if ds.get("warnings"):
+                steps.append("REVIEW: FDA drug warnings identified — verify medication safety before prescribing.")
+            if ds.get("interactions"):
+                steps.append("REVIEW: Potential drug-drug interactions flagged — consult pharmacist.")
+        return steps[:10]
+
+    def _extract_drug_safety(self, layer1: Layer1Findings) -> Dict:
+        """Pull FDA drug safety data from the medication specialist view."""
+        for view in layer1.views:
+            if view.agent == "medication":
+                findings = view.findings or {}
+                return {
+                    "warnings":        findings.get("fda_drug_warnings", []),
+                    "interactions":    findings.get("fda_interactions", []),
+                    "contraindications": findings.get("fda_contraindications", []),
+                }
+        return {}
+
     def _build_pdf(
         self,
         case: CaseDocument,
@@ -247,13 +292,18 @@ class Layer3Annotator:
             "missing_data": final.missing_data,
         }
 
+        drug_safety = getattr(self, "_drug_safety", {})
+
         pdf_data = {
             "case_id": case.case_id,
             "patient_summary": patient_summary,
             "urgent_red_flags": final.final_red_flags,
             "diagnosis": dx.primary_diagnosis,
             "confidence": dx.confidence,
+            "icd10_code": getattr(self, "_icd_code", "R69"),
+            "icd10_description": getattr(self, "_icd_desc", "Illness, unspecified"),
             "secondary_diagnoses": dx.secondary_diagnoses,
+            "drug_safety": drug_safety,
             "evidence_links": [
                 {
                     "source": e.source,
@@ -285,13 +335,13 @@ class Layer3Annotator:
                 },
                 {
                     "layer": "Layer 2 - Evidence Validator",
-                    "input": "layer1_findings.json + trusted evidence retrieval",
+                    "input": "layer1_findings.json + PubMed/NICE/WHO evidence",
                     "output": "final_assessment.json with supported/uncertain/contradicted findings",
                     "status": "completed",
                 },
                 {
                     "layer": "Layer 3 - Report Builder",
-                    "input": "final_assessment.json + highlight targets",
+                    "input": "final_assessment.json + ICD-10 coding + drug safety",
                     "output": f"MediCascade_Report_{case.case_id}.pdf",
                     "status": "completed",
                 },
@@ -304,16 +354,6 @@ class Layer3Annotator:
             print(f"[Layer 3] PDF generation error: {e}")
             return ""
         return output_path
-
-    def _recommended_next_steps(self, final: FinalAssessment) -> List[str]:
-        steps = [
-            "Review urgent red flags immediately.",
-            "Correlate highlighted values with bedside clinical assessment.",
-            "Confirm key abnormalities with repeat or targeted tests.",
-        ]
-        for missing in final.missing_data[:4]:
-            steps.append(f"Obtain missing data: {missing}")
-        return steps[:8]
 
 
 layer3_annotator = Layer3Annotator()

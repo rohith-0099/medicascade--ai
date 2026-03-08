@@ -48,3 +48,15 @@ backend/uploads/
 backend/outputs/
 result/
 synthetic_data/
+
+# Large model weights (1.1GB+)
+backend/nnunet_model/*.zip
+backend/nnunet_model/Dataset002_BRATS19/
+backend/kagglemodel/
+
+# Environment files (all variants)
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example

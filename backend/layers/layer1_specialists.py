@@ -11,7 +11,20 @@ try:
 except ImportError:
     Groq = None
 
-from specialists.scan_analyzer import scan_analyzer  # vision specialist (MedGemma)
+import requests as _requests
+
+from utils.drug_checker import check_medications     # FDA drug safety
+
+# ── Specialist model registry ────────────────────────────────────────────────
+SPECIALIST_CONFIGS = {
+    "notes":            ("llama-3.3-70b-versatile",                      "Meta LLaMA 3.3 70B Versatile"),
+    "labs":             ("meta-llama/llama-4-scout-17b-16e-instruct",    "Meta LLaMA 4 Scout 17B"),
+    "medication":       ("llama-3.3-70b-versatile",                      "Meta LLaMA 3.3 70B Versatile"),
+    "history_genetics": ("qwen/qwen3-32b",                               "Qwen 3 32B"),
+    "exposure":         ("llama-3.1-8b-instant",                         "Meta LLaMA 3.1 8B Instant"),
+    "risk":             ("meta-llama/llama-4-maverick-17b-128e-instruct", "Meta LLaMA 4 Maverick 17B"),
+    "imaging":          ("meta-llama/llama-4-scout-17b-16e-instruct",    "Meta LLaMA 4 Scout 17B"),
+}
 
 
 class Layer1Specialists:
@@ -23,8 +36,9 @@ class Layer1Specialists:
       - labs             → abnormal labs + patterns
       - medication       → meds list + interaction risks
       - history_genetics → comorbidities / inherited risks
+      - risk             → risk stratification & prognosis
       - exposure         → work/environment risks
-      - imaging (if images exist) → radiology-style findings
+      - imaging (if images exist) → radiology-style findings (Groq Vision)
     """
 
     def __init__(self):
@@ -35,7 +49,20 @@ class Layer1Specialists:
             except Exception as e:
                 print(f"[Layer 1] Groq client init failed, fallback mode enabled: {e}")
         self.model = settings.GROQ_MODEL
-        print(f"[Layer 1] Text specialist model: {self.model} (Groq)")
+        self.ollama_url = getattr(settings, "OLLAMA_BASE_URL", "http://localhost:11434")
+        self.ollama_model = getattr(settings, "OLLAMA_MODEL", "llama3.2")
+        # Probe Ollama availability once at startup
+        self._ollama_available = self._check_ollama()
+        if self._ollama_available:
+            print(f"[Layer 1] Ollama offline fallback ready: {self.ollama_model}")
+        print(f"[Layer 1] Multi-model specialist layer ready (Groq)")
+
+    def _check_ollama(self) -> bool:
+        try:
+            resp = _requests.get(f"{self.ollama_url}/api/tags", timeout=3)
+            return resp.status_code == 200
+        except Exception:
+            return False
 
     # ── public API ──────────────────────────────────────────────────────────
     def process(self, case: CaseDocument) -> Layer1Findings:
@@ -44,6 +71,7 @@ class Layer1Specialists:
             "labs": lambda: self._labs_agent(case),
             "medication": lambda: self._meds_agent(case),
             "history_genetics": lambda: self._history_agent(case),
+            "risk": lambda: self._risk_agent(case),
             "exposure": lambda: self._exposure_agent(case),
         }
         if case.facts.images:
@@ -60,11 +88,12 @@ class Layer1Specialists:
                     print(f"[Layer 1] [OK] {name} view ready ({view.confidence:.0%})")
                 except Exception as e:
                     print(f"[Layer 1] [FAIL] {name} failed: {e}")
+                    model_label = SPECIALIST_CONFIGS.get(name, (self.model, self.model))[1]
                     views.append(
                         SpecialistView(
                             agent=name,
                             role=f"{name} agent",
-                            model=self.model if name != "imaging" else settings.HF_VISION_MODEL,
+                            model=model_label,
                             confidence=0.0,
                             findings={"error": str(e)},
                         )
@@ -101,12 +130,12 @@ class Layer1Specialists:
             "exam_findings (array of strings), impressions (array), "
             "red_flags (array). Keep it concise."
         )
-        findings = self._llm_json(prompt, notes_text)
+        findings = self._llm_json(prompt, notes_text, agent_name="notes")
         findings = self._ensure_notes_fields(findings, notes_text)
         return SpecialistView(
             agent="notes",
             role="Symptom timeline + clinician impressions",
-            model=self.model,
+            model=SPECIALIST_CONFIGS["notes"][1],
             confidence=findings.pop("_confidence", 0.7),
             findings=findings,
         )
@@ -119,7 +148,7 @@ class Layer1Specialists:
             "patterns:[string], risk_flags:[string], primary_suspect:string}. "
             "Use status 'high'/'low' where possible."
         )
-        findings = self._llm_json(prompt, text)
+        findings = self._llm_json(prompt, text, agent_name="labs")
         findings = self._normalize_labs_findings(findings)
         heuristic = self._heuristic_lab_findings(case)
         for key in ("abnormal_labs", "patterns", "risk_flags", "primary_suspect"):
@@ -134,7 +163,7 @@ class Layer1Specialists:
         return SpecialistView(
             agent="labs",
             role="Laboratory interpretation",
-            model=self.model,
+            model=SPECIALIST_CONFIGS["labs"][1],
             confidence=findings.pop("_confidence", 0.7),
             findings=findings,
         )
@@ -146,12 +175,42 @@ class Layer1Specialists:
             "and flag obvious interaction risks. JSON schema: "
             "{medications:[{name,dose?,route?}], allergies:[string], interactions:[string]}."
         )
-        findings = self._llm_json(prompt, meds_text)
+        findings = self._llm_json(prompt, meds_text, agent_name="medication")
+        confidence = findings.pop("_confidence", 0.65)
+
+        # ── Enrich with real FDA drug safety data ──────────────────────
+        med_names = [
+            m.get("name", "") if isinstance(m, dict) else str(m)
+            for m in findings.get("medications", [])
+        ]
+        if not med_names:
+            # Try to extract med names from raw text via simple heuristic
+            import re
+            common_meds = re.findall(
+                r'\b(metformin|aspirin|atorvastatin|lisinopril|amlodipine|'
+                r'losartan|omeprazole|warfarin|insulin|glipizide|glimepiride|'
+                r'sitagliptin|empagliflozin|dapagliflozin|ramipril|furosemide|'
+                r'spironolactone|bisoprolol|carvedilol|digoxin|clopidogrel)\b',
+                meds_text, re.IGNORECASE
+            )
+            med_names = list(dict.fromkeys(common_meds))  # dedup, preserve order
+
+        if med_names:
+            try:
+                fda_result = check_medications(med_names[:6])
+                findings["fda_drug_warnings"]      = fda_result.get("warnings", [])
+                findings["fda_interactions"]        = fda_result.get("interactions", [])
+                findings["fda_contraindications"]   = fda_result.get("contraindications", [])
+                if fda_result.get("warnings") or fda_result.get("interactions"):
+                    confidence = min(1.0, confidence + 0.05)   # higher confidence when FDA data confirms
+            except Exception as e:
+                print(f"[Layer 1] FDA drug check failed: {e}")
+
         return SpecialistView(
             agent="medication",
-            role="Medication & allergy cross-check",
-            model=self.model,
-            confidence=findings.pop("_confidence", 0.65),
+            role="Medication & allergy cross-check (+ FDA safety data)",
+            model=SPECIALIST_CONFIGS["medication"][1],
+            confidence=confidence,
             findings=findings,
         )
 
@@ -162,12 +221,34 @@ class Layer1Specialists:
             "and inherited risk flags. JSON: {comorbidities:[string], family_history:[string], "
             "inherited_risks:[string]}."
         )
-        findings = self._llm_json(prompt, hx_text)
+        findings = self._llm_json(prompt, hx_text, agent_name="history_genetics")
         return SpecialistView(
             agent="history_genetics",
             role="Comorbidities & inherited risk",
-            model=self.model,
+            model=SPECIALIST_CONFIGS["history_genetics"][1],
             confidence=findings.pop("_confidence", 0.65),
+            findings=findings,
+        )
+
+    def _risk_agent(self, case: CaseDocument) -> SpecialistView:
+        context = case.raw_text[:2000]
+        prompt = (
+            "You are the Risk Stratification agent. Assess the patient's overall risk profile. "
+            "Return JSON: {overall_risk_level: 'low|moderate|high|critical', "
+            "cardiovascular_risk: 'low|moderate|high', "
+            "metabolic_risk: 'low|moderate|high', "
+            "renal_risk: 'low|moderate|high', "
+            "oncologic_risk: 'low|moderate|high', "
+            "immediate_interventions: [string], "
+            "long_term_monitoring: [string], "
+            "prognosis_notes: string}"
+        )
+        findings = self._llm_json(prompt, context, agent_name="risk")
+        return SpecialistView(
+            agent="risk",
+            role="Risk stratification & prognosis",
+            model=SPECIALIST_CONFIGS["risk"][1],
+            confidence=findings.pop("_confidence", 0.68),
             findings=findings,
         )
 
@@ -177,51 +258,84 @@ class Layer1Specialists:
             "exposures worth considering. JSON: {exposures:[{agent, context, likelihood}], "
             "consider:[string]}."
         )
-        findings = self._llm_json(prompt, case.raw_text[:1800])
+        findings = self._llm_json(prompt, case.raw_text[:1800], agent_name="exposure")
         return SpecialistView(
             agent="exposure",
             role="Exposure-linked risks",
-            model=self.model,
+            model=SPECIALIST_CONFIGS["exposure"][1],
             confidence=findings.pop("_confidence", 0.55),
             findings=findings,
         )
 
     def _imaging_agent(self, case: CaseDocument) -> SpecialistView:
-        if not settings.HF_API_TOKEN:
+        if not self.groq_client:
             return SpecialistView(
-                agent="imaging",
-                role="Imaging interpretation",
-                model=settings.HF_VISION_MODEL,
-                confidence=0.0,
-                findings={"note": "HF_API_TOKEN missing; imaging agent skipped."},
-                evidence=[],
+                agent="imaging", role="Imaging interpretation",
+                model=SPECIALIST_CONFIGS["imaging"][1], confidence=0.0,
+                findings={"note": "Groq API key required for imaging analysis."}
             )
 
-        # Reuse existing vision specialist; no Groq key required.
-        opinion = scan_analyzer.analyze(case.facts.images)
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": (
+                    "You are a radiologist. Analyze this medical scan. "
+                    "Return JSON: {modality: string, findings: [string], "
+                    "abnormalities: [string], diagnosis: string, "
+                    "confidence: 0.0-1.0, laterality: string, "
+                    "urgency: 'routine|urgent|emergent', reasoning: string}"
+                )}
+            ]
+        }]
+
+        # Add image if available
+        if case.facts.images:
+            img_b64 = case.facts.images[0]
+            messages[0]["content"].append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{img_b64}"}
+            })
+        else:
+            # Text-only imaging context from notes
+            messages[0]["content"][0]["text"] += f"\n\nClinical notes: {case.raw_text[:1500]}"
+
+        try:
+            resp = self.groq_client.chat.completions.create(
+                model=SPECIALIST_CONFIGS["imaging"][0],
+                temperature=0.1,
+                response_format={"type": "json_object"},
+                messages=messages,
+                max_tokens=800,
+            )
+            raw = resp.choices[0].message.content
+            findings = json.loads(raw)
+        except Exception as e:
+            print(f"[Layer 1] Groq vision error: {e}")
+            findings = {"error": str(e), "_confidence": 0.0}
+
         return SpecialistView(
             agent="imaging",
-            role="Imaging interpretation",
-            model=settings.HF_VISION_MODEL,
-            confidence=opinion.confidence,
-            findings={
-                "radiology_findings": opinion.key_findings,
-                "diagnosis": opinion.diagnosis,
-                "reasoning": opinion.reasoning,
-            },
-            evidence=[],
+            role="Radiology analysis (Groq Vision AI)",
+            model=SPECIALIST_CONFIGS["imaging"][1],
+            confidence=float(findings.pop("confidence", findings.pop("_confidence", 0.0))),
+            findings=findings,
         )
 
     # ── helpers ─────────────────────────────────────────────────────────────
-    def _llm_json(self, system_prompt: str, content: str) -> Dict[str, Any]:
+    def _llm_json(self, system_prompt: str, content: str, agent_name: str = "notes") -> Dict[str, Any]:
         if not content:
             return {}
 
+        # Pick the model for this specific specialist
+        model = SPECIALIST_CONFIGS.get(agent_name, (self.model,))[0]
+
+        sampled_content = self._windowed_excerpt(content, max_chars=12000)
+
+        # ── 1. Groq (primary) ──────────────────────────────────────────
         if self.groq_client:
             try:
-                sampled_content = self._windowed_excerpt(content, max_chars=12000)
                 resp = self.groq_client.chat.completions.create(
-                    model=self.model,
+                    model=model,
                     temperature=0.2,
                     response_format={"type": "json_object"},
                     messages=[
@@ -232,9 +346,35 @@ class Layer1Specialists:
                 raw = resp.choices[0].message.content
                 return json.loads(raw)
             except Exception as e:
-                print(f"[Layer 1] Groq JSON error: {e}")
+                print(f"[Layer 1] Groq JSON error ({agent_name}/{model}): {e}")
 
-        # Fallback heuristic: return minimal structure
+        # ── 2. Ollama local fallback (works completely offline) ─────────
+        if self._ollama_available:
+            try:
+                ollama_resp = _requests.post(
+                    f"{self.ollama_url}/api/chat",
+                    json={
+                        "model": self.ollama_model,
+                        "stream": False,
+                        "format": "json",
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": sampled_content[:8000]},
+                        ],
+                    },
+                    timeout=30,
+                )
+                if ollama_resp.status_code == 200:
+                    raw = ollama_resp.json().get("message", {}).get("content", "")
+                    parsed = json.loads(raw)
+                    parsed.setdefault("_confidence", 0.55)
+                    parsed["_source"] = "ollama"
+                    print(f"[Layer 1] Ollama fallback succeeded ({self.ollama_model}) for {agent_name}")
+                    return parsed
+            except Exception as e:
+                print(f"[Layer 1] Ollama fallback error ({agent_name}): {e}")
+
+        # ── 3. Heuristic fallback (always works) ───────────────────────
         return {"raw_excerpt": content[:400], "_confidence": 0.3}
 
     def _compose_notes_context(self, case: CaseDocument) -> str:
@@ -389,8 +529,9 @@ class Layer1Specialists:
                     if isinstance(point, dict):
                         symptom_timeline.append(point)
 
-            # Risk factors (history, exposure, meds interactions)
-            for key in ("inherited_risks", "consider", "interactions", "comorbidities"):
+            # Risk factors (history, exposure, meds interactions, risk agent)
+            for key in ("inherited_risks", "consider", "interactions", "comorbidities",
+                        "immediate_interventions", "long_term_monitoring"):
                 vals = findings.get(key)
                 risk_factors.extend(self._coerce_to_string_list(vals))
 

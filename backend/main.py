@@ -1,23 +1,18 @@
 import os
 import shutil
 import time
-import tempfile
 import logging
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
-from typing import Optional, Dict
-
-import numpy as np
-import nibabel as nib
-from skimage import measure
-from scipy import ndimage
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import settings
+from database import init_db, save_case, get_case_history, get_case, save_feedback, get_stats
+from utils.icd_mapper import get_icd10_code
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -26,9 +21,6 @@ from layers.layer0_pdf_processor import layer0_processor
 from layers.layer1_specialists import layer1_specialists
 from layers.layer2_validator import layer2_validator
 from layers.layer3_annotator import layer3_annotator
-from mri.mesh_export import export_mesh_bundle
-from mri.predict import get_predictor
-from mri.preprocess import DEFAULT_TARGET_SHAPE, load_and_preprocess_modalities
 from schemas import MriAnalyzeResponse
 
 app = FastAPI(
@@ -48,172 +40,10 @@ app.add_middleware(
 if os.path.exists(settings.OUTPUT_DIR):
     app.mount("/outputs", StaticFiles(directory=settings.OUTPUT_DIR), name="outputs")
 
-
-MODEL_PATH = Path(__file__).resolve().parent / "kagglemodel" / "best_model.pth"
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#                        3D BRAIN VISUALIZATION - HELPER FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def extract_brain_advanced(flair: np.ndarray) -> np.ndarray:
-    """
-    Multi-method brain extraction with heavy smoothing for perfect surface.
-    """
-    logger.info("Starting advanced brain extraction...")
-    
-    non_zero = flair[flair > 0]
-    if len(non_zero) == 0:
-        raise ValueError("Empty FLAIR volume")
-    
-    # Method 1: Very conservative percentile threshold
-    threshold = np.percentile(non_zero, 2)  # 2nd percentile
-    brain_mask = flair > threshold
-    
-    if brain_mask.sum() < 1000:
-        logger.warning("Low voxel count, using fallback threshold")
-        brain_mask = flair > (flair.max() * 0.005)
-    
-    # CRITICAL: Pre-smooth the binary mask before any morphology
-    logger.info("Pre-smoothing mask (σ=4.0)...")
-    brain_float = ndimage.gaussian_filter(brain_mask.astype(np.float32), sigma=4.0)
-    brain_mask = brain_float > 0.25
-    
-    # Large-scale closing to fill ventricles/sulci
-    logger.info("Morphological closing...")
-    brain_mask = ndimage.binary_closing(brain_mask, structure=np.ones((9,9,9)))
-    brain_mask = ndimage.binary_fill_holes(brain_mask)
-    
-    # Keep largest component only
-    labeled, num_features = ndimage.label(brain_mask)
-    if num_features > 1:
-        sizes = ndimage.sum(brain_mask, labeled, range(1, num_features + 1))
-        brain_mask = (labeled == (np.argmax(sizes) + 1))
-    
-    # Smooth morphology: erode then dilate more
-    brain_mask = ndimage.binary_erosion(brain_mask, iterations=3)
-    brain_mask = ndimage.binary_dilation(brain_mask, iterations=6)
-    brain_mask = ndimage.binary_fill_holes(brain_mask)
-    
-    # Final ultra-smooth pass
-    logger.info("Final smoothing pass (σ=3.0)...")
-    brain_float = ndimage.gaussian_filter(brain_mask.astype(np.float32), sigma=3.0)
-    brain_mask = brain_float > 0.4
-    
-    logger.info(f"Brain extracted: {brain_mask.sum():,} voxels")
-    return brain_mask.astype(np.uint8)
+# Initialise SQLite database on startup
+init_db()
 
 
-def laplacian_smooth_optimized(vertices: np.ndarray, 
-                               faces: np.ndarray,
-                               iterations: int = 20,
-                               lambda_factor: float = 0.65) -> np.ndarray:
-    """
-    Optimized Laplacian smoothing with numpy vectorization.
-    """
-    vertices = vertices.copy()
-    n_verts = len(vertices)
-    
-    # Build adjacency using sparse operations
-    adjacency = [set() for _ in range(n_verts)]
-    for face in faces:
-        for i in range(3):
-            v1, v2 = face[i], face[(i + 1) % 3]
-            adjacency[v1].add(v2)
-            adjacency[v2].add(v1)
-    
-    # Vectorized smoothing
-    for iteration in range(iterations):
-        new_vertices = vertices.copy()
-        for i in range(n_verts):
-            if len(adjacency[i]) > 0:
-                neighbors = np.array(list(adjacency[i]))
-                centroid = vertices[neighbors].mean(axis=0)
-                new_vertices[i] = vertices[i] + lambda_factor * (centroid - vertices[i])
-        vertices = new_vertices
-        
-        if (iteration + 1) % 5 == 0:
-            logger.info(f"   Smoothing iteration {iteration + 1}/{iterations}")
-    
-    return vertices
-
-
-def create_mesh_ultra_smooth(mask: np.ndarray,
-                             step_size: int = 2,
-                             gaussian_sigma: float = 3.5,
-                             laplacian_iterations: int = 20,
-                             structure_name: str = "Structure") -> Optional[Dict]:
-    """
-    Generate ultra-smooth 3D mesh from binary mask.
-    
-    Returns:
-        Dict with 'vertices' (Nx3) and 'faces' (Mx3), or None if failed
-    """
-    voxel_count = mask.sum()
-    
-    if voxel_count == 0:
-        logger.warning(f"{structure_name}: Empty mask, skipping")
-        return None
-    
-    logger.info(f"Creating mesh for {structure_name} ({voxel_count:,} voxels)")
-    
-    # Downsample
-    if step_size > 1:
-        small = ndimage.zoom(mask.astype(np.float32), 1/step_size, order=1)
-    else:
-        small = mask.astype(np.float32)
-    
-    # Heavy Gaussian + median filtering
-    logger.info(f"   Gaussian smoothing (σ={gaussian_sigma})...")
-    small = ndimage.gaussian_filter(small, sigma=gaussian_sigma)
-    small = ndimage.median_filter(small, size=3)
-    
-    if small.max() == 0:
-        logger.error(f"{structure_name}: Lost after smoothing")
-        return None
-    
-    # Normalize to 0-1 range for marching cubes
-    data_min = small.min()
-    data_max = small.max()
-    if data_max > data_min:
-        small = (small - data_min) / (data_max - data_min)
-    
-    # Marching cubes
-    try:
-        logger.info("   Running marching cubes...")
-        # Use threshold at 0.5 for normalized 0-1 data
-        threshold = 0.5 if data_max > 0 else small.max() / 2
-        verts, faces, normals, values = measure.marching_cubes(
-            small,
-            level=threshold,
-            step_size=1,
-            allow_degenerate=False
-        )
-        
-        # Scale back
-        verts = verts * step_size
-        
-        logger.info(f"   Generated {len(verts):,} vertices, {len(faces):,} faces")
-        
-        # Ultra-aggressive Laplacian smoothing
-        if laplacian_iterations > 0:
-            logger.info(f"   Laplacian smoothing ({laplacian_iterations} iterations)...")
-            verts = laplacian_smooth_optimized(verts, faces, 
-                                              iterations=laplacian_iterations,
-                                              lambda_factor=0.65)
-        
-        logger.info(f"   ✓ {structure_name} mesh complete")
-        
-        return {
-            'vertices': verts.tolist(),
-            'faces': faces.tolist(),
-            'vertex_count': len(verts),
-            'face_count': len(faces)
-        }
-        
-    except Exception as e:
-        logger.error(f"{structure_name} mesh failed: {str(e)}")
-        return None
 
 
 @app.get("/")
@@ -290,6 +120,29 @@ async def diagnose(file: UploadFile = File(...), scan: UploadFile = File(None)):
 
         total_elapsed = time.time() - start_time
 
+        # ICD-10 coding for structured reporting
+        icd_code, icd_desc = get_icd10_code(layer2.primary_diagnosis or "")
+
+        # Persist case to SQLite for history / longitudinal tracking
+        drug_safety = layer3.visualization_data.get("drug_safety", {}) if layer3.visualization_data else {}
+        try:
+            save_case(
+                case_id=layer0.case.case_id,
+                source_pdf=file.filename or "",
+                ingested_at=layer0.case.ingested_at,
+                primary_diagnosis=layer2.primary_diagnosis or "Undetermined",
+                icd10_code=icd_code,
+                icd10_description=icd_desc,
+                confidence=layer2.confidence,
+                processing_time=total_elapsed,
+                pdf_path=layer3.annotated_pdf_path or "",
+                layer1_findings={"candidate_diagnoses": layer1.candidate_diagnoses, "red_flags": layer1.red_flags},
+                layer2_assessment={"primary_diagnosis": layer2.primary_diagnosis, "confidence": layer2.confidence},
+                drug_warnings=drug_safety.get("warnings", []) or [],
+            )
+        except Exception as db_err:
+            logger.warning(f"DB save failed (non-fatal): {db_err}")
+
         response = {
             "success": True,
             "case_id": layer0.case.case_id,
@@ -361,6 +214,9 @@ async def diagnose(file: UploadFile = File(...), scan: UploadFile = File(None)):
             ],
             "evidence_count": len(layer3.evidence_items),
             "total_processing_time": total_elapsed,
+            "icd10_code": icd_code,
+            "icd10_description": icd_desc,
+            "drug_safety": drug_safety,
         }
         return response
 
@@ -369,18 +225,29 @@ async def diagnose(file: UploadFile = File(...), scan: UploadFile = File(None)):
         raise HTTPException(status_code=500, detail=f"Processing error: {e}")
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#                     MRI 3D TUMOR SEGMENTATION (nnU-Net)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 def _is_nifti_file(filename: str) -> bool:
     lower = filename.lower()
     return lower.endswith(".nii") or lower.endswith(".nii.gz")
 
 
-@app.post("/api/mri/analyze", response_model=MriAnalyzeResponse)
+@app.post("/api/mri/analyze")
 async def analyze_mri(
     t1: UploadFile = File(...),
     t1ce: UploadFile = File(...),
     t2: UploadFile = File(...),
     flair: UploadFile = File(...),
 ):
+    """
+    Upload 4 MRI modalities (NIfTI), run nnU-Net segmentation,
+    and return Plotly Mesh3d data for 3D brain + tumor visualization.
+    """
+    import nibabel as nib
+    import numpy as np
+
     start_time = time.time()
     request_id = f"{int(start_time)}_{uuid4().hex[:6]}"
     upload_dir = Path(settings.UPLOAD_DIR) / "mri" / request_id
@@ -390,219 +257,81 @@ async def analyze_mri(
     saved_paths: dict[str, Path] = {}
 
     try:
+        # Save uploaded NIfTI files
         for modality, upload in uploads.items():
             filename = upload.filename or ""
             if not _is_nifti_file(filename):
                 raise HTTPException(
                     status_code=400,
-                    detail=(
-                        f"Invalid file for {modality.upper()}. "
-                        "Only NIfTI files (.nii or .nii.gz) are accepted."
-                    ),
+                    detail=f"Invalid file for {modality.upper()}. Only .nii or .nii.gz accepted.",
                 )
-
             ext = ".nii.gz" if filename.lower().endswith(".nii.gz") else ".nii"
             path = upload_dir / f"{modality}{ext}"
             with path.open("wb") as buffer:
                 shutil.copyfileobj(upload.file, buffer)
             saved_paths[modality] = path
 
-        preprocessed = load_and_preprocess_modalities(
-            file_paths=saved_paths,
-            target_shape=DEFAULT_TARGET_SHAPE,
-            prefer_hdbet=settings.MRI_USE_HDBET,
-        )
-        predictor = get_predictor(MODEL_PATH)
-        prediction = predictor.predict(preprocessed.volume)
+        # Load raw NIfTI volumes at full resolution
+        volumes = {}
+        spacing = (1.0, 1.0, 1.0)
+        vol_shape = None
 
-        mesh_result = export_mesh_bundle(
-            masks=prediction.masks,
-            probabilities=prediction.probabilities,
-            brain_mask=preprocessed.brain_mask,
-            voxel_spacing=preprocessed.voxel_spacing,
-            output_dir=Path(settings.OUTPUT_DIR) / "meshes",
-            request_id=request_id,
+        for modality in ("t1", "t1ce", "t2", "flair"):
+            img = nib.load(str(saved_paths[modality]))
+            data = np.asarray(img.get_fdata(dtype=np.float32), dtype=np.float32)
+            if data.ndim != 3:
+                raise HTTPException(400, f"{modality.upper()} must be a 3D volume, got shape {data.shape}")
+            volumes[modality] = data
+
+            if vol_shape is None:
+                vol_shape = data.shape
+                spacing = tuple(float(s) for s in img.header.get_zooms()[:3])
+            elif data.shape != vol_shape:
+                raise HTTPException(400, f"Shape mismatch: {modality} is {data.shape}, expected {vol_shape}")
+
+        logger.info(f"Loaded 4 modalities at full resolution {vol_shape}, spacing={spacing}")
+
+        # Run nnU-Net segmentation
+        from mri.predictor import get_predictor
+        predictor = get_predictor()
+        segmentation = predictor.predict(
+            t1=volumes["t1"],
+            t1ce=volumes["t1ce"],
+            t2=volumes["t2"],
+            flair=volumes["flair"],
+            spacing=spacing,
         )
 
-        return MriAnalyzeResponse(
-            request_id=request_id,
-            uid=request_id,
-            meshes=mesh_result.meshes,
-            stats=mesh_result.stats,
-            processing_time=time.time() - start_time,
-            input_shape=list(preprocessed.volume.shape),
+        logger.info(f"Segmentation labels: {np.unique(segmentation)}")
+
+        # Generate Plotly meshes from raw FLAIR + segmentation
+        from mri.mesh_generator import generate_meshes, compute_stats
+        meshes = generate_meshes(
+            flair_raw=volumes["flair"],
+            segmentation=segmentation,
+            spacing=spacing,
         )
+        stats = compute_stats(segmentation=segmentation, spacing=spacing)
+
+        processing_time = time.time() - start_time
+        logger.info(f"MRI analysis complete in {processing_time:.1f}s")
+
+        return {
+            "request_id": request_id,
+            "meshes": meshes,
+            "stats": stats,
+            "processing_time": round(processing_time, 2),
+            "volume_shape": list(vol_shape),
+            "voxel_spacing": list(spacing),
+        }
 
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[MRI API ERROR] {e}")
+        logger.error(f"MRI analysis error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"MRI processing error: {e}")
     finally:
         shutil.rmtree(upload_dir, ignore_errors=True)
-
-
-@app.post("/api/mri/analyze-3d")
-async def analyze_mri_3d(
-    flair: UploadFile = File(..., description="FLAIR NIfTI file (.nii.gz)"),
-    segmentation: UploadFile = File(..., description="Segmentation NIfTI file (.nii.gz)")
-):
-    """
-    Process uploaded MRI files and return 3D mesh data for visualization.
-    
-    Request:
-        - flair: FLAIR MRI scan (.nii.gz)
-        - segmentation: Tumor segmentation mask (.nii.gz)
-    
-    Response:
-        {
-            "brain": { "vertices": [...], "faces": [...] },
-            "necrotic": { "vertices": [...], "faces": [...] },
-            "edema": { "vertices": [...], "faces": [...] },
-            "enhancing": { "vertices": [...], "faces": [...] },
-            "volumes": { "brain": 1200.5, "necrotic": 5.2, ... },
-            "metadata": { "processing_time": 45.2 }
-        }
-    """
-    
-    start_time = time.time()
-    
-    try:
-        # Create temp directory
-        with tempfile.TemporaryDirectory() as tmpdir:
-            logger.info(f"Processing uploaded MRI files in {tmpdir}")
-            
-            # Save uploaded files
-            flair_path = os.path.join(tmpdir, "flair.nii.gz")
-            seg_path = os.path.join(tmpdir, "seg.nii.gz")
-            
-            with open(flair_path, "wb") as f:
-                content = await flair.read()
-                f.write(content)
-            
-            with open(seg_path, "wb") as f:
-                content = await segmentation.read()
-                f.write(content)
-            
-            logger.info("Files saved, loading NIfTI data...")
-            
-            # Load NIfTI files
-            flair_nii = nib.load(flair_path)
-            seg_nii = nib.load(seg_path)
-            
-            flair_data = flair_nii.get_fdata()
-            seg_data = seg_nii.get_fdata()
-            voxel_dims = flair_nii.header.get_zooms()[:3]
-            
-            logger.info(f"Loaded volumes: {flair_data.shape}, voxel size: {voxel_dims}")
-            
-            # Extract brain mask
-            brain_mask = extract_brain_advanced(flair_data)
-            
-            # Extract tumor regions
-            necrotic_mask = (seg_data == 1).astype(np.uint8)
-            edema_mask = (seg_data == 2).astype(np.uint8)
-            enhancing_mask = (seg_data == 4).astype(np.uint8)
-            
-            # Calculate volumes (mm³ and cm³)
-            voxel_volume = np.prod(voxel_dims)
-            volumes = {
-                'brain_mm3': float(brain_mask.sum() * voxel_volume),
-                'brain_cm3': float(brain_mask.sum() * voxel_volume / 1000),
-                'necrotic_mm3': float(necrotic_mask.sum() * voxel_volume),
-                'necrotic_cm3': float(necrotic_mask.sum() * voxel_volume / 1000),
-                'edema_mm3': float(edema_mask.sum() * voxel_volume),
-                'edema_cm3': float(edema_mask.sum() * voxel_volume / 1000),
-                'enhancing_mm3': float(enhancing_mask.sum() * voxel_volume),
-                'enhancing_cm3': float(enhancing_mask.sum() * voxel_volume / 1000),
-                'total_tumor_mm3': float((seg_data > 0).sum() * voxel_volume),
-                'total_tumor_cm3': float((seg_data > 0).sum() * voxel_volume / 1000),
-            }
-            
-            logger.info(f"Volumes calculated: {volumes}")
-            
-            # Generate meshes with optimized parameters per structure
-            logger.info("\n" + "="*70)
-            logger.info("GENERATING 3D MESHES")
-            logger.info("="*70)
-            
-            meshes = {}
-            
-            # Brain: Maximum smoothness, can downsample heavily
-            meshes['brain'] = create_mesh_ultra_smooth(
-                brain_mask,
-                step_size=6,              # Heavy downsampling for speed
-                gaussian_sigma=4.0,       # Maximum smoothing
-                laplacian_iterations=20,  # Maximum smoothing passes
-                structure_name="Brain Cortex"
-            )
-            
-            # Edema: Moderate quality
-            meshes['edema'] = create_mesh_ultra_smooth(
-                edema_mask,
-                step_size=2,
-                gaussian_sigma=2.5,
-                laplacian_iterations=15,
-                structure_name="Edema"
-            )
-            
-            # Necrotic: High detail (smaller structure)
-            meshes['necrotic'] = create_mesh_ultra_smooth(
-                necrotic_mask,
-                step_size=1,
-                gaussian_sigma=2.0,
-                laplacian_iterations=15,
-                structure_name="Necrotic Core"
-            )
-            
-            # Enhancing: Highest detail
-            meshes['enhancing'] = create_mesh_ultra_smooth(
-                enhancing_mask,
-                step_size=1,
-                gaussian_sigma=2.0,
-                laplacian_iterations=15,
-                structure_name="Enhancing Tumor"
-            )
-            
-            processing_time = time.time() - start_time
-            logger.info(f"\n✓ Processing complete in {processing_time:.1f} seconds")
-            
-            # Prepare response
-            response = {
-                "success": True,
-                "meshes": {
-                    "brain": meshes.get('brain'),
-                    "edema": meshes.get('edema'),
-                    "necrotic": meshes.get('necrotic'),
-                    "enhancing": meshes.get('enhancing'),
-                },
-                "volumes": volumes,
-                "metadata": {
-                    "volume_shape": list(flair_data.shape),
-                    "voxel_dimensions": list(voxel_dims),
-                    "processing_time_seconds": round(processing_time, 2),
-                    "flair_filename": flair.filename,
-                    "seg_filename": segmentation.filename
-                },
-                "colors": {
-                    "brain": "#4a90e2",
-                    "edema": "#f5a623",
-                    "necrotic": "#d0021b",
-                    "enhancing": "#ff6b35"
-                },
-                "opacity": {
-                    "brain": 0.15,
-                    "edema": 0.50,
-                    "necrotic": 0.75,
-                    "enhancing": 0.80
-                }
-            }
-            
-            return JSONResponse(content=response)
-            
-    except Exception as e:
-        logger.error(f"Error processing MRI: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
 
 @app.get("/api/report/{case_id}")
@@ -619,6 +348,83 @@ async def get_case(case_id: str):
     if not os.path.exists(case_path):
         raise HTTPException(status_code=404, detail="Case not found")
     return FileResponse(case_path, media_type="application/json", filename="case.json")
+
+
+@app.get("/api/history")
+async def case_history(limit: int = 20, offset: int = 0):
+    """Return paginated list of all processed cases from the SQLite database."""
+    cases = get_case_history(limit=limit, offset=offset)
+    stats = get_stats()
+    return {"cases": cases, "stats": stats, "limit": limit, "offset": offset}
+
+
+@app.post("/api/feedback/{case_id}")
+async def submit_feedback(case_id: str, rating: int, comment: str = ""):
+    """
+    Clinician feedback on diagnosis accuracy.
+    rating: 1 (incorrect) → 5 (excellent).
+    """
+    if not 1 <= rating <= 5:
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5.")
+    existing = get_case(case_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Case not found.")
+    save_feedback(case_id=case_id, rating=rating, comment=comment)
+    return {"success": True, "case_id": case_id, "rating": rating}
+
+
+@app.get("/api/stats")
+async def system_stats():
+    """Aggregate statistics: total cases, avg confidence, top diagnoses."""
+    return get_stats()
+
+
+@app.get("/api/fhir/{case_id}")
+async def fhir_export(case_id: str):
+    """
+    Export a case as a minimal FHIR R4 DiagnosticReport resource.
+    Enables integration with EHR systems (Epic, Cerner, etc.).
+    """
+    row = get_case(case_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Case not found.")
+
+    import json as _json
+    l2 = _json.loads(row.get("layer2_json") or "{}") if row.get("layer2_json") else {}
+
+    fhir = {
+        "resourceType": "DiagnosticReport",
+        "id": case_id,
+        "status": "final",
+        "code": {
+            "coding": [{
+                "system": "http://loinc.org",
+                "code": "47519-4",
+                "display": "History and physical note"
+            }]
+        },
+        "subject": {"display": row.get("source_pdf", "unknown")},
+        "effectiveDateTime": row.get("ingested_at", ""),
+        "issued": row.get("created_at", ""),
+        "conclusion": row.get("primary_diagnosis", "Undetermined"),
+        "conclusionCode": [{
+            "coding": [{
+                "system": "http://hl7.org/fhir/sid/icd-10-cm",
+                "code": row.get("icd10_code", "R69"),
+                "display": row.get("icd10_description", "Illness, unspecified")
+            }]
+        }],
+        "extension": [{
+            "url": "https://medicascade.ai/fhir/StructureDefinition/confidence",
+            "valueDecimal": row.get("confidence", 0.0)
+        }],
+        "presentedForm": [{
+            "contentType": "application/pdf",
+            "url": f"/outputs/cases/{case_id}/MediCascade_Report_{case_id}.pdf",
+            "title": "MediCascade AI Diagnostic Report"
+        }]
+    }
+    return JSONResponse(content=fhir, media_type="application/fhir+json")
 
 
 if __name__ == "__main__":

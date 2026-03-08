@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # ── External providers ──────────────────────────────────────────────────
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    OPENROUTER_VALIDATOR_MODEL: str = "qwen/qwen-2.5-72b-instruct:free"
+    OPENROUTER_VALIDATOR_MODEL: str = "meta-llama/llama-3.3-70b-instruct:free"
 
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
@@ -33,13 +33,18 @@ class Settings(BaseSettings):
     OUTPUT_DIR: str = "outputs"
     CASE_DIR: str = "outputs/cases"
 
+    # ── Ollama local fallback (completely offline) ───────────────────────────
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.2"
+
+    # ── Database ────────────────────────────────────────────────────────────
+    DB_PATH: str = "outputs/medicascade.db"
+
     # ── Runtime knobs ───────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
     LAYER1_TIMEOUT: int = 90
     LAYER2_TIMEOUT: int = 120
     LAYER3_TIMEOUT: int = 90
-    MRI_USE_HDBET: bool = True
-
     model_config = ConfigDict(
         env_file=".env",
         case_sensitive=False,

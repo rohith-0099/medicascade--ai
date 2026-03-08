@@ -13,31 +13,23 @@ from schemas import CaseDocument, EvidenceSnippet, FinalAssessment, Layer1Findin
 class Layer2Validator:
     """
     Layer 2: evidence retrieval + validator ("truth check").
-    Primary model: OpenRouter qwen/qwen-2.5-72b-instruct:free
-    Fallback model: Groq llama-3.3-70b-versatile (strict evidence mode)
+    Primary model: Groq llama-3.3-70b-versatile (fast, reliable)
+    Fallback: OpenRouter free models
     """
 
     def __init__(self):
         self.base_url = settings.OPENROUTER_BASE_URL.rstrip("/")
-        # Locked per product requirement.
-        self.model = "qwen/qwen-2.5-72b-instruct:free"
+        self.model = settings.OPENROUTER_VALIDATOR_MODEL
         self.api_key = settings.OPENROUTER_API_KEY
         self.groq_api_key = settings.GROQ_API_KEY
         self.groq_model = settings.GROQ_MODEL or "llama-3.3-70b-versatile"
 
-        if settings.OPENROUTER_VALIDATOR_MODEL and settings.OPENROUTER_VALIDATOR_MODEL != self.model:
-            print(
-                "[Layer 2] OPENROUTER_VALIDATOR_MODEL override ignored. "
-                f"Using required model: {self.model}"
-            )
-        if self.api_key:
-            print(f"[Layer 2] Validator model: {self.model}")
-        else:
-            print("[Layer 2] OPENROUTER_API_KEY missing.")
         if self.groq_api_key:
-            print(f"[Layer 2] Groq fallback enabled: {self.groq_model}")
-        else:
-            print("[Layer 2] GROQ_API_KEY missing. If OpenRouter fails, heuristic fallback will be used.")
+            print(f"[Layer 2] Groq primary validator: {self.groq_model}")
+        if self.api_key:
+            print(f"[Layer 2] OpenRouter fallback: {self.model}")
+        if not self.groq_api_key and not self.api_key:
+            print("[Layer 2] No API keys set. Heuristic fallback will be used.")
 
     def process(self, case: CaseDocument, layer1: Layer1Findings) -> FinalAssessment:
         retrieval_context = self._retrieve_evidence_context(layer1)
@@ -47,24 +39,23 @@ class Layer2Validator:
         validator_source = ""
         result: Dict[str, Any] = {}
 
-        if self.api_key:
+        # Try Groq first (fast, reliable), then OpenRouter as fallback
+        if self.groq_api_key:
+            result, err = self._call_groq(payload)
+            if result:
+                validator_source = f"groq:{self.groq_model}"
+            elif err:
+                errors.append(f"Groq failed: {err}")
+
+        if not result and self.api_key:
             result, err = self._call_openrouter(payload)
             if result:
                 validator_source = f"openrouter:{self.model}"
             elif err:
-                errors.append(f"OpenRouter failed: {err}")
-        else:
-            errors.append("OPENROUTER_API_KEY missing")
+                errors.append(f"OpenRouter fallback failed: {err}")
 
-        if not result:
-            if self.groq_api_key:
-                result, err = self._call_groq(payload)
-                if result:
-                    validator_source = f"groq:{self.groq_model}"
-                elif err:
-                    errors.append(f"Groq fallback failed: {err}")
-            else:
-                errors.append("GROQ_API_KEY missing")
+        if not result and not self.groq_api_key and not self.api_key:
+            errors.append("No API keys configured")
 
         if result:
             assessment = self._parse_validator_output(result, case.case_id)
@@ -128,33 +119,30 @@ class Layer2Validator:
         return contexts[:12]
 
     def _pubmed_links(self, term: str) -> List[Dict[str, str]]:
+        """Fetch real PubMed abstracts (not placeholder links)."""
+        from utils.pubmed_client import get_evidence_for_diagnosis
+        articles = get_evidence_for_diagnosis(term, max_results=3)
         out: List[Dict[str, str]] = []
-        try:
-            search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-            resp = requests.get(
-                search_url,
-                params={
-                    "db": "pubmed",
-                    "term": f"{term}[Title/Abstract]",
-                    "retmode": "json",
-                    "retmax": 3,
-                    "sort": "relevance",
-                },
-                timeout=8,
-            )
-            resp.raise_for_status()
-            ids = resp.json().get("esearchresult", {}).get("idlist", [])
-            for pid in ids:
-                out.append(
-                    {
-                        "source": "PubMed",
-                        "title": f"PubMed PMID {pid}",
-                        "url": f"https://pubmed.ncbi.nlm.nih.gov/{pid}/",
-                        "snippet": f"PubMed candidate evidence for term '{term}'.",
-                    }
-                )
-        except Exception as e:
-            print(f"[Layer 2] PubMed retrieval failed for '{term}': {e}")
+        for art in articles:
+            out.append({
+                "source": "PubMed",
+                "title":   art["title"],
+                "url":     art["url"],
+                "snippet": art["snippet"],   # real abstract excerpt
+                "pmid":    art.get("pmid", ""),
+                "journal": art.get("journal", ""),
+                "year":    art.get("year", ""),
+            })
+        if not out:
+            # Graceful fallback: search-page link (no fake snippet)
+            import requests as _r
+            q = _r.utils.quote(term)
+            out.append({
+                "source": "PubMed",
+                "title":  f"PubMed search: {term}",
+                "url":    f"https://pubmed.ncbi.nlm.nih.gov/?term={q}",
+                "snippet": "Search PubMed for peer-reviewed evidence on this topic.",
+            })
         return out
 
     # ------------------------------------------------------------------ #
@@ -199,18 +187,40 @@ class Layer2Validator:
             """
         ).strip()
 
+        # Truncate case_facts to stay under Groq's token limit (~12k)
+        facts_dump = case.facts.model_dump(mode="json")
+        # Keep only essential fields, drop verbose raw text
+        compact_facts = {
+            "demographics": facts_dump.get("demographics", {}),
+            "vitals": facts_dump.get("vitals", {}),
+            "labs": facts_dump.get("labs", [])[:20],
+            "medications": facts_dump.get("medications", [])[:15],
+            "history": facts_dump.get("history", [])[:10],
+        }
+
+        # Summarize views — only include agent name, top findings (not full text)
+        compact_views = []
+        for v in layer1.views[:4]:
+            vd = v.model_dump(mode="json")
+            compact_views.append({
+                "agent": vd.get("agent", ""),
+                "role": vd.get("role", ""),
+                "confidence": vd.get("confidence", 0),
+                "findings": str(vd.get("findings", ""))[:400],
+            })
+
         user_payload = {
             "case_id": case.case_id,
-            "case_facts": case.facts.model_dump(mode="json"),
+            "case_facts": compact_facts,
             "layer1_findings": {
-                "candidate_diagnoses": layer1.candidate_diagnoses,
-                "red_flags": layer1.red_flags,
-                "abnormal_labs": layer1.abnormal_labs,
-                "symptom_timeline": layer1.symptom_timeline,
-                "risk_factors": layer1.risk_factors,
-                "views": [v.model_dump(mode="json") for v in layer1.views],
+                "candidate_diagnoses": layer1.candidate_diagnoses[:5],
+                "red_flags": layer1.red_flags[:8],
+                "abnormal_labs": layer1.abnormal_labs[:10],
+                "symptom_timeline": layer1.symptom_timeline[:6],
+                "risk_factors": layer1.risk_factors[:8],
+                "views": compact_views,
             },
-            "retrieval_context": retrieval_context,
+            "retrieval_context": retrieval_context[:6],
         }
 
         return {
@@ -339,6 +349,8 @@ class Layer2Validator:
     ) -> FinalAssessment:
         rule = self._derive_rule_based_signals(case, layer1)
         evidence_items = self._build_evidence_snippets(retrieval_context or [])
+        # Sanitize reason — never expose raw API error messages
+        clean_reason = self._sanitize_error(reason)
         return FinalAssessment(
             case_id=case.case_id,
             final_problem_list=rule["final_problem_list"],
@@ -349,13 +361,28 @@ class Layer2Validator:
                 f"Layer-2 model unavailable; used deterministic fallback for {rule['primary_diagnosis']}.",
             ],
             contradicted_findings=[],
-            missing_data=[reason] if reason else [],
+            missing_data=[clean_reason] if clean_reason else [],
             evidence_pack=evidence_items,
             highlight_targets=rule["highlight_targets"],
             decision_log=f"Heuristic fallback: {reason}",
             primary_diagnosis=rule["primary_diagnosis"],
             confidence=rule["confidence"],
         )
+
+    @staticmethod
+    def _sanitize_error(text: str) -> str:
+        """Replace raw API error messages with clean clinical-friendly text."""
+        if not text:
+            return text
+        error_patterns = [
+            "Client Error", "Server Error", "Too Many Requests", "Payload Too Large",
+            "rate_limit", "413", "429", "500", "502", "503", "body=",
+            "HTTPSConnectionPool", "Connection aborted", "RemoteDisconnected",
+        ]
+        for pat in error_patterns:
+            if pat.lower() in text.lower():
+                return "Validator model temporarily unavailable; deterministic analysis was used instead."
+        return text
 
     # ------------------------------------------------------------------ #
     # Deterministic safety guards
