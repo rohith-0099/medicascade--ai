@@ -10,7 +10,7 @@ PyPDF2==3.0.1
 pdfplumber==0.10.3        # Primary PDF extractor
 pdf2image==1.17.0
 pytesseract==0.3.10       # Tesseract OCR integration
-Pillow==10.2.0
+Pillow==11.3.0
 
 # ── NLP (Layer 0 + Specialist 2) ─────────────────────────
 spacy==3.7.4              # spaCy for clinical NER (Layer 0)
@@ -18,8 +18,11 @@ spacy==3.7.4              # spaCy for clinical NER (Layer 0)
 
 # ── AI/ML Infrastructure ──────────────────────────────────
 requests==2.31.0
+chardet<6
 numpy==1.26.3
 huggingface-hub==0.23.0   # HF Hub for gated model access
+groq==1.0.0               # Groq OpenAI-compatible client (Layer 1 & 3)
+httpx==0.27.2             # Required for groq compatibility
 
 # ── Specialist 5: LightGBM Risk Scorer ───────────────────
 lightgbm==4.3.0
@@ -28,8 +31,16 @@ lightgbm==4.3.0
 shap==0.45.0
 
 # Optional: local transformers (uncomment if running locally)
-# torch==2.2.0
+# torch is required by the MRI 3D segmentation pipeline.
+# Install from your preferred channel (CPU/CUDA), e.g.:
+# pip install torch
 # transformers==4.40.0
+
+# MRI 3D segmentation + mesh export
+nibabel==5.2.1
+trimesh==4.11.3
+scikit-image==0.25.0
+hd-bet==2.0.1
 
 # ── Image Processing & Annotation ────────────────────────
 opencv-python==4.9.0.80

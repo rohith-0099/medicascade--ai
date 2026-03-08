@@ -1,0 +1,15 @@
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# MRI inference
+torch
+numpy==1.26.3
+nibabel==5.2.1
+scipy==1.12.0
+scikit-image==0.25.0
+trimesh==4.11.3
+hd-bet==2.0.1
+
+# Optional for notebook/interactive visualization
+plotly==5.24.1

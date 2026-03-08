@@ -15,7 +15,7 @@ from typing import List
 
 class ScanAnalyzer:
 
-    MODEL = settings.HF_IMAGING_MODEL  # google/medgemma-4b-it
+    MODEL = getattr(settings, "HF_IMAGING_MODEL", settings.HF_VISION_MODEL)
     DISPLAY_NAME = "medgemma-27b-it (Imaging)"
 
     def __init__(self):

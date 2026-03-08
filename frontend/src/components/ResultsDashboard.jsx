@@ -9,7 +9,7 @@ export default function ResultsDashboard({ results, onReset }) {
     const conf = results.confidence || 0
     const confPct = Math.round(conf * 100)
     const cvScore = Math.round((results.cross_validation_score || 0) * 100)
-    const confColor = conf >= 0.75 ? '#39d353' : conf >= 0.5 ? '#f0b429' : '#f85149'
+    const confColor = conf >= 0.75 ? '#10b981' : conf >= 0.5 ? '#f59e0b' : '#ef4444'
     const confLabel = conf >= 0.75 ? 'High Confidence' : conf >= 0.5 ? 'Moderate' : 'Low Confidence'
 
     const opinions = results.layer1_opinions || []
@@ -82,9 +82,9 @@ export default function ResultsDashboard({ results, onReset }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
                 {[
                     { label: 'Confidence', val: `${confPct}%`, color: confColor },
-                    { label: 'Cross-Validation', val: `${cvScore}%`, color: '#388bfd' },
-                    { label: 'Specialists Used', val: l2.num_specialists_used || opinions.length || 5, color: '#bc8cff' },
-                    { label: 'Processing Time', val: `${(results.total_processing_time || 0).toFixed(1)}s`, color: '#39d353' },
+                    { label: 'Cross-Validation', val: `${cvScore}%`, color: '#3b82f6' },
+                    { label: 'Specialists Used', val: l2.num_specialists_used || opinions.length || 5, color: '#94a3b8' },
+                    { label: 'Processing Time', val: `${(results.total_processing_time || 0).toFixed(1)}s`, color: '#10b981' },
                 ].map(s => (
                     <div key={s.label} className="metric-card">
                         <div className="metric-label">{s.label}</div>
@@ -100,7 +100,7 @@ export default function ResultsDashboard({ results, onReset }) {
             {/* ── Layer 0 ────────────────────────────────────────── */}
             <Section
                 id="l0" open={openSections.l0} onToggle={() => toggle('l0')}
-                layerN={0} color="#bc8cff"
+                layerN={0} color="#94a3b8"
                 title="Layer 0 — Data Extraction"
                 subtitle="pdfplumber · PyPDF2 · DataClassifier"
                 badge="L0"
@@ -113,11 +113,11 @@ export default function ResultsDashboard({ results, onReset }) {
                         { label: 'Image Extraction', detail: 'Embedded JPEG/PNG via PyPDF2 XObject', icon: '🖼️' },
                     ].map(item => (
                         <div key={item.label} style={{
-                            background: 'rgba(188,140,255,0.05)', border: '1px solid rgba(188,140,255,0.12)',
+                            background: 'rgba(148,163,184,0.05)', border: '1px solid rgba(148,163,184,0.12)',
                             borderRadius: '8px', padding: '12px 14px'
                         }}>
                             <div style={{ fontSize: '16px', marginBottom: '4px' }}>{item.icon}</div>
-                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#bc8cff', marginBottom: '3px' }}>{item.label}</div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#e2e8f0', marginBottom: '3px' }}>{item.label}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>{item.detail}</div>
                         </div>
                     ))}
@@ -130,7 +130,7 @@ export default function ResultsDashboard({ results, onReset }) {
             {/* ── Layer 1 ─────────────────────────────────────────── */}
             <Section
                 id="l1" open={openSections.l1} onToggle={() => toggle('l1')}
-                layerN={1} color="#39d353"
+                layerN={1} color="#3b82f6"
                 title="Layer 1 — Specialist Analysis"
                 subtitle="5 models run independently in parallel"
                 badge="L1"
@@ -139,15 +139,15 @@ export default function ResultsDashboard({ results, onReset }) {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {opinions.map((op, i) => {
                             const c = Math.round((op.confidence || 0) * 100)
-                            const col = c >= 70 ? '#39d353' : c >= 45 ? '#f0b429' : '#f85149'
+                            const col = c >= 70 ? '#10b981' : c >= 45 ? '#f59e0b' : '#ef4444'
                             return (
                                 <div key={i} className={`specialist-card ${c >= 70 ? 'high-conf' : c >= 45 ? 'mid-conf' : 'low-conf'}`}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
                                         <div style={{ flex: 1 }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                                                 <span style={{
-                                                    fontSize: '10px', fontWeight: 700, color: '#0d1117',
-                                                    background: '#39d353', padding: '2px 8px', borderRadius: '99px'
+                                                    fontSize: '10px', fontWeight: 700, color: '#fff',
+                                                    background: '#3b82f6', padding: '2px 8px', borderRadius: '99px'
                                                 }}>S{i + 1}</span>
                                                 <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
                                                     {op.model_name}
@@ -171,8 +171,8 @@ export default function ResultsDashboard({ results, onReset }) {
                                                         {op.key_findings.slice(0, 6).map((f, j) => (
                                                             <span key={j} style={{
                                                                 fontSize: '11px', padding: '2px 9px', borderRadius: '99px',
-                                                                background: 'rgba(57,211,83,0.08)', color: '#39d353',
-                                                                border: '1px solid rgba(57,211,83,0.15)'
+                                                                background: 'rgba(59,130,246,0.08)', color: '#60a5fa',
+                                                                border: '1px solid rgba(59,130,246,0.15)'
                                                             }}>{f}</span>
                                                         ))}
                                                     </div>
@@ -186,8 +186,8 @@ export default function ResultsDashboard({ results, onReset }) {
                                                         {op.detected_conditions.slice(0, 5).map((cond, j) => (
                                                             <span key={j} style={{
                                                                 fontSize: '11px', padding: '2px 9px', borderRadius: '99px',
-                                                                background: 'rgba(248,81,73,0.08)', color: '#f85149',
-                                                                border: '1px solid rgba(248,81,73,0.15)'
+                                                                background: 'rgba(239,68,68,0.08)', color: '#ef4444',
+                                                                border: '1px solid rgba(239,68,68,0.15)'
                                                             }}>{cond}</span>
                                                         ))}
                                                     </div>
@@ -235,7 +235,7 @@ export default function ResultsDashboard({ results, onReset }) {
             {/* ── Layer 2 ─────────────────────────────────────────── */}
             <Section
                 id="l2" open={openSections.l2} onToggle={() => toggle('l2')}
-                layerN={2} color="#f0b429"
+                layerN={2} color="#f59e0b"
                 title="Layer 2 — Cross-Validation"
                 subtitle="MedGemma-4B reads all 5 reports and produces unified diagnosis"
                 badge="L2"
@@ -244,11 +244,11 @@ export default function ResultsDashboard({ results, onReset }) {
                     {[
                         { label: 'Primary Diagnosis', val: l2.primary_diagnosis || results.primary_diagnosis, color: confColor },
                         { label: 'Overall Confidence', val: `${Math.round((l2.confidence || conf) * 100)}%`, color: confColor },
-                        { label: 'Cross-Validation Score', val: `${cvScore}%`, color: '#388bfd' },
-                        { label: 'Specialists Consulted', val: l2.num_specialists_used || opinions.length || 5, color: '#bc8cff' },
+                        { label: 'Cross-Validation Score', val: `${cvScore}%`, color: '#3b82f6' },
+                        { label: 'Specialists Consulted', val: l2.num_specialists_used || opinions.length || 5, color: '#94a3b8' },
                     ].map(m => (
                         <div key={m.label} style={{
-                            background: 'rgba(240,180,41,0.05)', border: '1px solid rgba(240,180,41,0.12)',
+                            background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.12)',
                             borderRadius: '8px', padding: '12px 14px'
                         }}>
                             <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>
@@ -278,7 +278,7 @@ export default function ResultsDashboard({ results, onReset }) {
                 {/* Reasoning */}
                 {l2.reasoning && (
                     <div style={{
-                        background: 'rgba(240,180,41,0.05)', border: '1px solid rgba(240,180,41,0.12)',
+                        background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.12)',
                         borderRadius: '10px', padding: '14px 16px'
                     }}>
                         <p style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '6px' }}>
@@ -316,7 +316,7 @@ export default function ResultsDashboard({ results, onReset }) {
             {/* ── Layer 3 ─────────────────────────────────────────── */}
             <Section
                 id="l3" open={openSections.l3} onToggle={() => toggle('l3')}
-                layerN={3} color="#388bfd"
+                layerN={3} color="#10b981"
                 title="Layer 3 — XAI Explanation"
                 subtitle="MedGemma-4B generates human-readable clinical explanation"
                 badge="L3"
@@ -328,11 +328,11 @@ export default function ResultsDashboard({ results, onReset }) {
                         { icon: '🎨', label: 'Image Annotator', detail: 'Scan regions highlighted with findings' },
                     ].map(item => (
                         <div key={item.label} style={{
-                            background: 'rgba(56,139,253,0.05)', border: '1px solid rgba(56,139,253,0.12)',
+                            background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.12)',
                             borderRadius: '8px', padding: '12px 14px', textAlign: 'center'
                         }}>
                             <div style={{ fontSize: '20px', marginBottom: '6px' }}>{item.icon}</div>
-                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#388bfd', marginBottom: '3px' }}>{item.label}</div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#10b981', marginBottom: '3px' }}>{item.label}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{item.detail}</div>
                         </div>
                     ))}
@@ -353,16 +353,16 @@ export default function ResultsDashboard({ results, onReset }) {
 
                 {/* PDF download */}
                 {results.annotated_pdf_path && (
-                    <div style={{ marginTop: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', background: 'rgba(57,211,83,0.06)', border: '1px solid rgba(57,211,83,0.2)', borderRadius: '10px' }}>
+                    <div style={{ marginTop: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '10px' }}>
                         <div>
-                            <p style={{ fontWeight: 700, color: '#39d353', marginBottom: '3px', fontSize: '13px' }}>📄 Annotated PDF Report Ready</p>
+                            <p style={{ fontWeight: 700, color: '#10b981', marginBottom: '3px', fontSize: '13px' }}>📄 Annotated PDF Report Ready</p>
                             <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Evidence-annotated clinical report with XAI explanation</p>
                         </div>
                         <a href="/api/report/diagnosis_report.pdf" download style={{
                             padding: '9px 18px', borderRadius: '8px', fontWeight: 700, fontSize: '13px',
-                            background: 'linear-gradient(135deg, #1a4d2e, #39d353)', color: '#d5f5db',
-                            textDecoration: 'none', border: '1px solid rgba(57,211,83,0.4)',
-                            boxShadow: '0 0 14px rgba(57,211,83,0.2)', flexShrink: 0
+                            background: 'linear-gradient(135deg, #0f172a, #10b981)', color: '#f8fafc',
+                            textDecoration: 'none', border: '1px solid rgba(16,185,129,0.4)',
+                            boxShadow: '0 0 14px rgba(16,185,129,0.2)', flexShrink: 0
                         }}>
                             ↓ Download PDF
                         </a>
@@ -450,6 +450,6 @@ function ConfidenceGauge({ confidence, color }) {
 
 function hexToRgb(hex) {
     const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-    if (!r) return '57,211,83'
+    if (!r) return '16,185,129'
     return `${parseInt(r[1], 16)},${parseInt(r[2], 16)},${parseInt(r[3], 16)}`
 }

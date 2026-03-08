@@ -1,378 +1,319 @@
-"""
-Layer 3 — XAI Explanation
-Models:
-  • SHAP          — Feature importance scores from specialist outputs
-  • Grad-CAM      — Gradient-weighted class activation maps (imaging)
-  • google/medgemma-4b-it — Human-readable clinical explanation for doctor
-
-Purpose: Explains the AI's diagnosis process in plain language to the doctor,
-         identifies which features drove the decision, and annotates reports/images.
-"""
-
-from utils.hf_client import hf_client
-from utils.image_annotator import image_annotator
-from utils.pdf_annotator import pdf_annotator
-from schemas import FinalDiagnosis, PatientData, AnnotatedReport, Evidence
-from config import settings
 import os
-import time
-import base64
-import re
-from typing import List
+from typing import Dict, List
+
+from config import settings
+from schemas import (
+    AnnotatedReport,
+    CaseDocument,
+    Evidence,
+    FinalAssessment,
+    FinalDiagnosis,
+    Layer1Findings,
+)
+from utils.pdf_annotator import pdf_annotator
+
+try:
+    from groq import Groq
+except ImportError:
+    Groq = None
+
 
 class Layer3Annotator:
-
-    EXPLAINER_MODEL = "google/medgemma-4b-it"
+    """
+    Layer 3: doctor-ready output with explicit sections and annotations.
+    """
 
     def __init__(self):
-        pass  # All model calls via hf_client
+        self.groq_client = None
+        if settings.GROQ_API_KEY and Groq:
+            try:
+                self.groq_client = Groq(api_key=settings.GROQ_API_KEY)
+            except Exception as e:
+                print(f"[Layer 3] Groq client init failed, narrative fallback enabled: {e}")
 
-    def process(self, diagnosis: FinalDiagnosis, patient_data: PatientData, layer1_output=None) -> AnnotatedReport:
-        
-        print("[Layer 3] Generating explanation and annotations...")
-        start_time = time.time()
-        
-        self.layer1_output = layer1_output
-        
-        evidence_items = self._extract_evidence_fast(diagnosis, patient_data)
-        print(f"[Layer 3] Extracted {len(evidence_items)} evidence items")
-        
-        specific_values = self._extract_specific_values(patient_data, evidence_items)
-        
-        explanation = self._generate_explanation_fast(diagnosis, evidence_items, specific_values)
-        print("[Layer 3] Generated explanation text")
-        
-        annotated_images_paths = []
-        if patient_data.images:
-            print(f"[Layer 3] Annotating {len(patient_data.images)} images...")
-            annotated_images_paths = self._annotate_images(
-                patient_data.images,
-                diagnosis.primary_diagnosis
-            )
-        
-        pdf_path = self._create_pdf_report(
-            diagnosis,
-            patient_data,
-            evidence_items,
-            explanation,
-            annotated_images_paths,
-            specific_values
+    def process(self, case: CaseDocument, layer1: Layer1Findings, final: FinalAssessment) -> AnnotatedReport:
+        explanation = self._narrate(final, layer1)
+        evidence_items = self._build_evidence(final)
+
+        final_dx = FinalDiagnosis(
+            primary_diagnosis=final.primary_diagnosis or "Undetermined",
+            confidence=final.confidence,
+            secondary_diagnoses=final.final_differentials,
+            reasoning=explanation,
+            cross_validation_score=0.0,
+            anomaly_detected=False,
+            anomaly_description="",
+            conflicts_resolved=[],
+            critical_points=self._critical_points_from_highlights(final),
         )
-        print(f"[Layer 3] Created PDF report: {pdf_path}")
-        
-        viz_data = self._create_visualization_data(diagnosis, evidence_items)
-        
-        elapsed = time.time() - start_time
-        print(f"[Layer 3] Annotation complete in {elapsed:.2f}s")
-        
+
+        pdf_path = self._build_pdf(case, layer1, final, final_dx, explanation, evidence_items)
+
         return AnnotatedReport(
-            diagnosis=diagnosis,
+            diagnosis=final_dx,
             evidence_items=evidence_items,
             explanation_text=explanation,
             annotated_pdf_path=pdf_path,
-            annotated_images_paths=annotated_images_paths,
-            visualization_data=viz_data
-        )
-    
-    def _extract_specific_values(self, patient_data: PatientData, evidence: List[Evidence]) -> List[str]:
-        """Extract specific medical values for circling - checks both evidence and raw data"""
-        specific_values = []
-        import re
-        
-        # 1. Check structured lab results first (High Priority)
-        if patient_data.lab_results:
-            for test, value in patient_data.lab_results.items():
-                test_lower = test.lower()
-                if any(k in test_lower for k in ['glucose', 'blood pressure', 'bp', 'temp', 'heart', 'hemoglobin']):
-                    label = test.replace('_', ' ').title()
-                    specific_values.append(f"**{label}:** {value}")
-        
-        # 2. Check evidence text for formatted values
-        for ev in evidence:
-            text_lower = ev.text.lower()
-            
-            # Blood Pressure (if not caught in structured data)
-            if ('blood pressure' in text_lower or 'bp' in text_lower or '/' in ev.text) and 'blood pressure' not in str(specific_values).lower():
-                bp_match = re.search(r'(\d{2,3})/(\d{2,3})', ev.text)
-                if bp_match:
-                    specific_values.append(f"**Blood Pressure:** {bp_match.group(0)} mmHg")
-            
-            # Generic pattern: **Label: Value**
-            generic_match = re.search(r'\*\*([A-Za-z0-9\s\-\(\)]+):\s*([A-Za-z0-9\.\/%<>=\-]+)\*\*', ev.text)
-            if generic_match:
-                label = generic_match.group(1).strip()
-                val = generic_match.group(2).strip()
-                # Avoid duplicates
-                if label.lower() not in [v.split(':')[0].lower().strip('* ') for v in specific_values]:
-                    specific_values.append(f"**{label}:** {val}")
-                    
-        return list(set(specific_values))
-
-    def _extract_evidence_fast(self, diagnosis: FinalDiagnosis, data: PatientData) -> List[Evidence]:
-        
-        items = []
-        
-        if self.layer1_output:
-            for opinion in self.layer1_output.specialist_opinions:
-                if opinion.model_name == "lab_analyzer":
-                    abnormal_labs = opinion.key_findings.get('abnormal_values', [])
-                    for lab in abnormal_labs:
-                        test_name = lab.get('test', 'Unknown test')
-                        value = lab.get('value', 0)
-                        status = lab.get('status', '')
-                        
-                        items.append(Evidence(
-                            text=f"**{test_name.upper()}: {value}** ({status})",
-                            location="Laboratory Results - ABNORMAL",
-                            relevance_score=0.95,
-                            annotation_type="highlight"
-                        ))
-                
-                if opinion.model_name == "scan_analyzer":
-                   ml_prob = opinion.key_findings.get('ml_tumor_probability', 0)
-                   if ml_prob > 0.5:
-                       items.append(Evidence(
-                           text=f"**TUMOR PROBABILITY: {ml_prob:.1%}** (ML Model)",
-                           location="Brain Scan Analysis",
-                           relevance_score=0.99,
-                           annotation_type="highlight"
-                       ))
-        
-        if data.symptoms:
-            items.append(Evidence(
-                text=data.symptoms[:200],
-                location="Patient Symptoms",
-                relevance_score=0.85,
-                annotation_type="highlight"
-            ))
-        
-        if data.clinical_notes:
-            items.append(Evidence(
-                text=data.clinical_notes[:200],
-                location="Clinical Notes",
-                relevance_score=0.75,
-                annotation_type="highlight"
-            ))
-        
-        if data.images and len(data.images) > 0:
-            items.append(Evidence(
-                text=f"Abnormalities detected in {len(data.images)} medical images",
-                location="Medical Imaging",
-                relevance_score=0.90,
-                annotation_type="image_marker"
-            ))
-        
-        return items[:20]
-    
-    def _generate_explanation_fast(self, diagnosis: FinalDiagnosis, evidence: List[Evidence], specific_values: List[str] = None) -> str:
-
-        clinical_explanation = self._generate_clinical_explanation(diagnosis, evidence, specific_values)
-        
-        return clinical_explanation
-    
-    def _generate_clinical_explanation(self, diagnosis: FinalDiagnosis, evidence: List[Evidence], specific_values: List[str] = None) -> str:
-
-        patient_findings = []
-        for ev in evidence:
-            if len(ev.text) > 20:
-                patient_findings.append(f"• {ev.text[:250]} (Source: {ev.location})")
-        
-        findings_text = "\n".join(patient_findings[:8])
-        values_section = "\n".join(specific_values) if specific_values else "No specific numerical values extracted"
-        
-        alternatives_text = "None identified"
-        if diagnosis.secondary_diagnoses:
-            alt_list = []
-            for s in diagnosis.secondary_diagnoses[:3]:
-                alt_list.append(f"• {s['diagnosis']} - {s['confidence']:.0%} probability")
-            alternatives_text = "\n".join(alt_list)
-        
-        patient_findings = []
-        for ev in evidence:
-            if len(ev.text) > 10: 
-                # Normalize text: replace all internal newlines with spaces to prevent vertical stacking in PDF
-                clean_text = ev.text.replace('\n', ' ').replace('\r', ' ').strip()
-                # Remove excessive spaces
-                clean_text = ' '.join(clean_text.split())
-                patient_findings.append(f"• {clean_text[:500]} (Found in: {ev.location})") 
-        
-        findings_text = "\n".join(patient_findings[:25]) # Increased context to 25 items
-        values_section = "\n".join(specific_values) if specific_values else "No specific numerical values extracted"
-        
-        # Build secondary diagnoses
-        alternatives_text = "None identified"
-        if diagnosis.secondary_diagnoses:
-            alt_list = []
-            for s in diagnosis.secondary_diagnoses[:3]:
-                alt_list.append(f"• {s['diagnosis']} - {s['confidence']:.0%} probability")
-            alternatives_text = "\n".join(alt_list)
-        
-        # High-Speed Academic/Theoretical Prompt
-        prompt = f"""You are a world-class Distinguished Medical Consultant.
-Generate a HIGH-DEPTH THEORETICAL XAI report for diagnosis: {diagnosis.primary_diagnosis}.
-Focus on being CLINICALLY DENSE but token-efficient for immediate physician review.
-
-[INPUT DATA]
-Values: {values_section}
-Context: {findings_text}
-
-AI DIAGNOSIS: {diagnosis.primary_diagnosis} ({diagnosis.confidence:.0%})
-CROSS-VAL: {diagnosis.cross_validation_score:.0%}
-
-REQUIREMENTS (BE CONCISE BUT ACADEMICALLY DEEP):
-1. **PATHOPHYSIOLOGY:** Explain the theoretical mechanism of {diagnosis.primary_diagnosis}. Focus on core clinical principles.
-2. **DATA CORRELATION:** Link {values_section} to the pathophysiology. Explain the "why" behind the numbers.
-3. **DIFFERENTIAL:** Briefly explain why {alternatives_text} were ruled out theoretically.
-4. **XAI LOGIC:** Explain the AI's internal evidence weighting in 3-4 sentences.
-
-Structure:
-## I. THEORETICAL PATHOPHYSIOLOGY
-## II. DATA CORRELATION ANALYSIS
-## III. DIFFERENTIAL DIAGNOSTIC THEORY
-## IV. XAI REASONING LOGIC
-## V. CLINICAL PROJECTIONS
-
-Target: 500-700 High-Depth words. Be academically rigorous but fast."""
-
-        try:
-            from config import settings
-            model = settings.HF_EXPLAINER_MODEL
-            print(f"[Layer 3] Generating XAI report via {model}...")
-            response = hf_client.generate_text(model, prompt, max_new_tokens=600, temperature=0.2)
-            if response and len(response.strip()) > 200:
-                print("[Layer 3] XAI Report generated successfully")
-                return response
-        except Exception as e:
-            print(f"[Layer 3] MedGemma XAI error: {e}")
-
-        return self._generate_structured_fallback(diagnosis, evidence, patient_findings, specific_values)
-
-    def _generate_structured_fallback(self, diagnosis: FinalDiagnosis, evidence: List[Evidence], patient_findings: List[str], specific_values: List[str] = None) -> str:
-        """Plain-text fallback when MedGemma is unavailable."""
-        if specific_values is None:
-            specific_values = []
-        findings_section = "\n".join(patient_findings[:5])
-        values_display = "\n".join(specific_values) if specific_values else "No specific values extracted"
-        alternatives = "• No significant alternatives identified"
-        if diagnosis.secondary_diagnoses:
-            alternatives = "\n".join(
-                f"• {s['diagnosis']} ({s['confidence']:.0%})" for s in diagnosis.secondary_diagnoses[:3]
-            )
-        return (
-            f"**Clinical Assessment:**\n{diagnosis.primary_diagnosis} is indicated by:\n"
-            f"{findings_section}\n\n**Key Data:**\n{values_display}\n\n**Differential:**\n{alternatives}"
+            annotated_images_paths=[],
+            visualization_data={
+                "layer1_agents": [v.agent for v in layer1.views],
+                "red_flags": final.final_red_flags,
+            },
         )
 
-    def _annotate_images(self, images_base64: List[str], diagnosis: str) -> List[str]:
-        
-        annotated_paths = []
-        
-        from utils.scan_report_analyzer import scan_report_analyzer
-        import base64
-        import tempfile
-        import shutil
-        
-        print(f"[Layer 3] Re-analyzing {len(images_base64)} images for high-quality annotation marks...")
-        
-        for i, img_b64 in enumerate(images_base64[:3]):
-            try:
-                img_bytes = base64.b64decode(img_b64)
-                if len(img_bytes) < 1000: continue
-                
-                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
-                    tmp_file.write(img_bytes)
-                    tmp_path = tmp_file.name
-                
-                report = scan_report_analyzer.analyze_single_scan(
-                    tmp_path, 
-                    output_dir=os.path.join(settings.OUTPUT_DIR, "final_annotations")
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
+    def _build_evidence(self, final: FinalAssessment) -> List[Evidence]:
+        items: List[Evidence] = []
+        for ev in final.evidence_pack:
+            text = f"{ev.source}: {ev.snippet}".strip()
+            items.append(
+                Evidence(
+                    text=text[:400],
+                    location=ev.url or ev.title,
+                    relevance_score=0.9,
+                    annotation_type="highlight",
                 )
-                
-                marked_img_path = report['scan_info']['marked_image']
-                
-                final_path = os.path.join(settings.OUTPUT_DIR, f"annotated_image_{i}.png")
-                shutil.copy2(marked_img_path, final_path)
-                
-                annotated_paths.append(final_path)
-                
-                os.unlink(tmp_path)
-                
-            except Exception as e:
-                print(f"[Layer 3] Detailed annotation error: {e}")
-                try:
-                    scan_abnormalities = []
-                    if self.layer1_output:
-                        for opinion in self.layer1_output.specialist_opinions:
-                            if opinion.model_name == "scan_analyzer":
-                                scan_abnormalities = opinion.key_findings.get('abnormality_positions', [])
-                                break
-                    
-                    annotated_b64 = image_annotator.create_default_annotation(
-                        img_b64, 
-                        diagnosis,
-                        abnormalities=scan_abnormalities
-                    )
-                    img_path = os.path.join(settings.OUTPUT_DIR, f"annotated_image_{i}.png")
-                    with open(img_path, 'wb') as f:
-                        f.write(base64.b64decode(annotated_b64))
-                    annotated_paths.append(img_path)
-                except:
-                    pass
-        
-        return annotated_paths
-    
-    def _create_pdf_report(self, diagnosis: FinalDiagnosis, data: PatientData,
-                          evidence: List[Evidence], explanation: str,
-                          image_paths: List[str], specific_values: List[str] = None) -> str:
+            )
+        for prov in final.highlight_targets:
+            items.append(
+                Evidence(
+                    text=prov.text_span or "Critical span",
+                    location=f"Page {prov.page}",
+                    relevance_score=0.85,
+                    annotation_type="circle",
+                )
+            )
+        return items[:30]
+
+    def _critical_points_from_highlights(self, final: FinalAssessment) -> List[Dict[str, str]]:
+        points: List[Dict[str, str]] = []
+        for p in final.highlight_targets[:12]:
+            points.append(
+                {
+                    "phrase": p.text_span or "Critical phrase",
+                    "reason": "Marked as a key data point for clinical review.",
+                    "severity": "CRITICAL",
+                }
+            )
+        return points
+
+    def _narrate(self, final: FinalAssessment, layer1: Layer1Findings) -> str:
+        fallback = self._build_rule_based_narrative(final, layer1)
+        if not self.groq_client:
+            return fallback
+        try:
+            evidence_lines = []
+            for ev in final.evidence_pack[:12]:
+                evidence_lines.append(
+                    f"- [{ev.source}] {ev.title} | {ev.url} | snippet: {ev.snippet[:220]}"
+                )
+
+            layer1_lines = []
+            for cand in layer1.candidate_diagnoses[:8]:
+                layer1_lines.append(
+                    f"- {cand.get('agent','agent')}: {cand.get('diagnosis','')} "
+                    f"({float(cand.get('confidence', 0.0) or 0.0):.0%})"
+                )
+
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a senior clinical decision support explainer. "
+                        "Write a detailed doctor-facing XAI narrative using ONLY provided validated findings. "
+                        "No new claims, no invented evidence. If evidence is insufficient, state uncertainty explicitly."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Build the explanation with these sections:\n"
+                        "1) Clinical summary\n"
+                        "2) Why primary diagnosis is most likely\n"
+                        "3) Differential reasoning\n"
+                        "4) Red-flag interpretation\n"
+                        "5) Evidence grounding (with source names)\n"
+                        "6) Uncertainty and missing data\n"
+                        "7) Recommended next tests/actions\n\n"
+                        f"Primary diagnosis: {final.primary_diagnosis}\n"
+                        f"Confidence: {final.confidence:.2f}\n"
+                        f"Final problem list: {final.final_problem_list}\n"
+                        f"Final differentials: {final.final_differentials}\n"
+                        f"Final red flags: {final.final_red_flags}\n"
+                        f"Supported findings: {final.supported_findings}\n"
+                        f"Uncertain findings: {final.uncertain_findings}\n"
+                        f"Contradicted findings: {final.contradicted_findings}\n"
+                        f"Missing data: {final.missing_data}\n"
+                        f"Layer1 candidate diagnoses:\n{chr(10).join(layer1_lines) if layer1_lines else '- none'}\n"
+                        f"Evidence pack:\n{chr(10).join(evidence_lines) if evidence_lines else '- none'}\n"
+                        f"Highlight targets count: {len(final.highlight_targets)}\n"
+                        "Keep tone clinical, precise, and practical."
+                    ),
+                },
+            ]
+            resp = self.groq_client.chat.completions.create(
+                model=settings.GROQ_MODEL,
+                temperature=0.15,
+                max_tokens=1100,
+                messages=messages,
+            )
+            text = resp.choices[0].message.content or ""
+            return text.strip() if text.strip() else fallback
+        except Exception as e:
+            print(f"[Layer 3] Narrative generation failed: {e}")
+            return fallback
+
+    def _build_rule_based_narrative(self, final: FinalAssessment, layer1: Layer1Findings) -> str:
+        candidate_lines = [
+            f"- {c.get('diagnosis', '')} ({float(c.get('confidence', 0.0) or 0.0):.0%})"
+            for c in layer1.candidate_diagnoses[:5]
+        ]
+        diff_lines = [
+            f"- {d.get('diagnosis', '')}: {d.get('reason', '')}"
+            for d in final.final_differentials[:5]
+            if isinstance(d, dict)
+        ]
+        red_flag_lines = [f"- {flag}" for flag in final.final_red_flags[:8]]
+        evidence_lines = [
+            f"- {ev.source}: {ev.title} ({ev.url})"
+            for ev in final.evidence_pack[:8]
+        ]
+        missing_lines = [f"- {item}" for item in final.missing_data[:6]]
+
+        sections = [
+            "1) Clinical summary",
+            f"Primary diagnosis: {final.primary_diagnosis or 'undetermined'}",
+            f"Confidence: {final.confidence:.0%}",
+            "Layer 1 candidates:",
+            "\n".join(candidate_lines) if candidate_lines else "- none",
+            "",
+            "2) Why primary diagnosis is likely",
+            "\n".join([f"- {item}" for item in final.supported_findings[:8]]) if final.supported_findings else "- Supported findings not explicitly listed.",
+            "",
+            "3) Differential reasoning",
+            "\n".join(diff_lines) if diff_lines else "- No differentials were provided by validator output.",
+            "",
+            "4) Red-flag interpretation",
+            "\n".join(red_flag_lines) if red_flag_lines else "- No urgent red flags identified.",
+            "",
+            "5) Evidence grounding",
+            "\n".join(evidence_lines) if evidence_lines else "- Evidence links unavailable.",
+            "",
+            "6) Uncertainty and missing data",
+            "\n".join([f"- {item}" for item in final.uncertain_findings[:6]]) if final.uncertain_findings else "- No explicit uncertainty notes.",
+            "\n".join(missing_lines) if missing_lines else "- No missing-data notes.",
+            "",
+            "7) Recommended next tests/actions",
+            "- Repeat key abnormal labs and correlate with bedside findings.",
+            "- Review highlighted source spans in the PDF before treatment decisions.",
+            "- Prioritize urgent red flags and specialist follow-up where indicated.",
+        ]
+        return "\n".join(sections).strip()
+
+    def _build_pdf(
+        self,
+        case: CaseDocument,
+        layer1: Layer1Findings,
+        final: FinalAssessment,
+        dx: FinalDiagnosis,
+        explanation: str,
+        evidence: List[Evidence],
+    ) -> str:
+        case_dir = os.path.join(settings.CASE_DIR, case.case_id)
+        os.makedirs(case_dir, exist_ok=True)
+        output_path = os.path.join(case_dir, f"MediCascade_Report_{case.case_id}.pdf")
+
+        patient_summary = {
+            "demographics": {f.label: str(f.value) for f in case.facts.demographics[:12]},
+            "vitals": {f.label: f"{f.value} {f.unit or ''}".strip() for f in case.facts.vitals[:12]},
+            "key_facts": [f"{f.label}: {f.value}" for f in case.facts.labs[:8]],
+        }
+
+        layer1_section = {
+            "candidate_diagnoses": layer1.candidate_diagnoses,
+            "red_flags": layer1.red_flags,
+            "abnormal_labs": layer1.abnormal_labs,
+            "symptom_timeline": layer1.symptom_timeline,
+            "risk_factors": layer1.risk_factors,
+        }
+
+        layer2_section = {
+            "final_problem_list": final.final_problem_list,
+            "supported_findings": final.supported_findings,
+            "uncertain_findings": final.uncertain_findings,
+            "contradicted_findings": final.contradicted_findings,
+            "missing_data": final.missing_data,
+        }
 
         pdf_data = {
-            "patient_info": data.patient_info,
-            "diagnosis": diagnosis.primary_diagnosis,
-            "confidence": diagnosis.confidence,
-            "evidence": [{"text": ev.text, "location": ev.location} for ev in evidence],
+            "case_id": case.case_id,
+            "patient_summary": patient_summary,
+            "urgent_red_flags": final.final_red_flags,
+            "diagnosis": dx.primary_diagnosis,
+            "confidence": dx.confidence,
+            "secondary_diagnoses": dx.secondary_diagnoses,
+            "evidence_links": [
+                {
+                    "source": e.source,
+                    "title": e.title,
+                    "url": e.url,
+                    "snippet": e.snippet,
+                }
+                for e in final.evidence_pack
+            ],
+            "layer1_findings": layer1_section,
+            "layer2_validated": layer2_section,
             "reasoning": explanation,
-            "annotated_images": image_paths,
-            "specific_values": specific_values,  # Pass specific values for circling
-            "recommendations": [
-                "Immediate consultation with specialist recommended",
-                f"Confidence: {diagnosis.confidence:.0%} - verification required",
-                "Additional diagnostic tests may be warranted"
-            ]
+            "recommendations": self._recommended_next_steps(final),
+            "critical_points": dx.critical_points,
+            "highlight_targets": [p.model_dump(mode="json") for p in final.highlight_targets],
+            "evidence": [{"text": ev.text, "location": ev.location} for ev in evidence],
+            "data_flow_trace": [
+                {
+                    "layer": "Layer 0 - Document Intake",
+                    "input": "Uploaded patient PDF (and optional scan)",
+                    "output": "case.json with structured facts + provenance",
+                    "status": "completed",
+                },
+                {
+                    "layer": "Layer 1 - Multi-model Specialists",
+                    "input": "case.json",
+                    "output": "layer1_findings.json with candidate diagnoses/red flags/risk factors",
+                    "status": "completed",
+                },
+                {
+                    "layer": "Layer 2 - Evidence Validator",
+                    "input": "layer1_findings.json + trusted evidence retrieval",
+                    "output": "final_assessment.json with supported/uncertain/contradicted findings",
+                    "status": "completed",
+                },
+                {
+                    "layer": "Layer 3 - Report Builder",
+                    "input": "final_assessment.json + highlight targets",
+                    "output": f"MediCascade_Report_{case.case_id}.pdf",
+                    "status": "completed",
+                },
+            ],
         }
-        
-        output_path = os.path.join(settings.OUTPUT_DIR, "diagnosis_report.pdf")
-        
+
         try:
             pdf_annotator.create_annotated_report(output_path, pdf_data)
         except Exception as e:
-            print(f"PDF creation error: {e}")
-            output_path = ""
-        
+            print(f"[Layer 3] PDF generation error: {e}")
+            return ""
         return output_path
-    
-    def _create_visualization_data(self, diagnosis: FinalDiagnosis, evidence: List[Evidence]) -> dict:
-        
-        return {
-            "confidence_breakdown": {
-                "primary": diagnosis.confidence,
-                "cross_validation": diagnosis.cross_validation_score,
-                "secondary": [
-                    {"name": sec.get("diagnosis", "Unknown"), "value": sec.get("confidence", 0.0)}
-                    for sec in diagnosis.secondary_diagnoses
-                ]
-            },
-            "evidence_scores": [
-                {
-                    "text": ev.text[:50] + "...",
-                    "score": ev.relevance_score,
-                    "location": ev.location
-                }
-                for ev in evidence
-            ],
-            "anomaly_status": {
-                "detected": diagnosis.anomaly_detected,
-                "description": diagnosis.anomaly_description
-            }
-        }
+
+    def _recommended_next_steps(self, final: FinalAssessment) -> List[str]:
+        steps = [
+            "Review urgent red flags immediately.",
+            "Correlate highlighted values with bedside clinical assessment.",
+            "Confirm key abnormalities with repeat or targeted tests.",
+        ]
+        for missing in final.missing_data[:4]:
+            steps.append(f"Obtain missing data: {missing}")
+        return steps[:8]
+
 
 layer3_annotator = Layer3Annotator()

@@ -1,116 +1,126 @@
 """
 Specialist 2 — Symptoms & Clinical Notes
-Model: UFNLP/gatortron-medium
-Purpose: Reads doctor notes, patient complaints, and clinical text.
-         Extracts symptoms, disease mentions, onset duration, severity.
-         Generates symptom analysis report.
+Models: UFNLP/gatortron-medium (NER) + google/medgemma-4b-it (reasoning)
+Purpose: Reads clinical text/notes and extracts symptoms, then reasons
+         to a diagnosis — NO hardcoded keyword maps or condition tables.
 """
 
 from utils.hf_client import hf_client
 from schemas import SpecialistOpinion
 from config import settings
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
+
+NER_MODEL     = settings.HF_SYMPTOM_MODEL   # UFNLP/gatortron-medium
+REASON_MODEL  = settings.HF_TEXT_MODEL      # google/medgemma-4b-it
+DISPLAY_NAME  = "GatorTron-medium NER + MedGemma-4B Reasoning"
+
+SYSTEM_PROMPT = """You are a senior physician and clinical NLP specialist. \
+You have trained in internal medicine, neurology, psychiatry, hepatology, and rare diseases. \
+When you read clinical text, patient complaints, or doctor notes, you reason through the \
+symptoms systematically to reach the most accurate diagnosis possible. \
+You consider rare diseases when the symptom pattern cannot be explained by common conditions."""
+
+SYMPTOM_ANALYSIS_TEMPLATE = """\
+Analyze the following clinical text and determine the most likely diagnosis.
+
+--- CLINICAL TEXT ---
+{clinical_text}
+--- END OF CLINICAL TEXT ---
+
+{ner_hint}
+
+Instructions:
+1. Extract the key symptoms and signs described.
+2. Consider the full clinical picture — including unusual or rare presentations.
+3. Identify the single most likely primary diagnosis that explains all symptoms.
+4. If symptoms span multiple organ systems (liver + brain + psychiatric), consider \
+systemic or metabolic diseases.
+
+Respond EXACTLY in this format:
+Diagnosis: [full clinical diagnosis name]
+Confidence: [0-100]
+Key Symptoms: [comma-separated list of the most relevant symptoms found]
+Reasoning: [2-3 sentences explaining why this diagnosis fits the clinical picture]
+"""
 
 
 class SymptomAnalyzer:
 
-    NER_MODEL = settings.HF_SYMPTOM_MODEL           # UFNLP/gatortron-medium
-    FALLBACK_MODEL = settings.HF_TEXT_MODEL          # medgemma-4b-it (for summarization)
-    DISPLAY_NAME = "GatorTron-medium (Clinical NER)"
-
-    # ── Clinical condition KB (used when NER entities are mapped) ────────────
-    CONDITION_MAP = {
-        "stroke": {"diagnosis": "Cerebrovascular Accident (Stroke)", "confidence": 0.88,
-                   "keywords": ["stroke", "cva", "cerebrovascular", "hemiparesis", "aphasia", "tia"]},
-        "brain_tumor": {"diagnosis": "Suspected Intracranial Neoplasm", "confidence": 0.86,
-                        "keywords": ["tumor", "mass", "glioma", "meningioma", "neoplasm", "lesion", "seizure"]},
-        "mi": {"diagnosis": "Acute Myocardial Infarction", "confidence": 0.91,
-               "keywords": ["chest pain", "myocardial infarction", "mi", "troponin", "angina", "stemi"]},
-        "diabetes": {"diagnosis": "Diabetes Mellitus", "confidence": 0.85,
-                     "keywords": ["diabetes", "hyperglycemia", "polydipsia", "polyuria", "hba1c"]},
-        "hypertension": {"diagnosis": "Hypertension", "confidence": 0.83,
-                         "keywords": ["hypertension", "high blood pressure", "elevated bp", "140/90"]},
-        "pneumonia": {"diagnosis": "Community-Acquired Pneumonia", "confidence": 0.84,
-                      "keywords": ["pneumonia", "cough", "dyspnea", "fever", "consolidation", "breath"]},
-        "ckd": {"diagnosis": "Chronic Kidney Disease", "confidence": 0.80,
-                "keywords": ["kidney", "renal", "creatinine elevated", "ckd", "dialysis", "proteinuria"]},
-        "sepsis": {"diagnosis": "Sepsis / Systemic Infection", "confidence": 0.88,
-                   "keywords": ["sepsis", "infection", "bacteremia", "sirs", "fever", "hypotension", "tachycardia"]},
-    }
-
     def __init__(self):
         self.model_name = "symptom_analyzer"
-        print(f"[{self.model_name}] Initialized with model: {self.NER_MODEL}")
+        print(f"[{self.model_name}] Initialized — Pure AI mode")
+        print(f"[{self.model_name}] NER: {NER_MODEL} | Reasoning: {REASON_MODEL}")
 
     def analyze(self, symptoms_text: str) -> SpecialistOpinion:
-        if not symptoms_text or len(symptoms_text.strip()) < 10:
-            return SpecialistOpinion(
-                model_name=self.model_name,
-                diagnosis="Insufficient symptom data",
-                confidence=0.0,
-                reasoning="No clinical text or symptoms provided",
-                key_findings={"model": self.NER_MODEL}
-            )
+        """Pure AI symptom analysis — no keyword maps, no condition tables."""
 
-        print(f"[{self.model_name}] Model: {self.NER_MODEL}")
+        if not symptoms_text or len(symptoms_text.strip()) < 10:
+            return self._empty_result("No clinical text provided")
+
         print(f"[{self.model_name}] Analyzing {len(symptoms_text)} chars of clinical text...")
 
-        # ── Step 1: GatorTron NER — extract clinical entities ────────────────
+        # ── Step 1: GatorTron NER — real trained model, extract clinical entities ──
         ner_entities = self._run_gatortron_ner(symptoms_text)
-        ner_conditions = self._entities_to_conditions(ner_entities)
+        ner_hint     = self._build_ner_hint(ner_entities)
 
-        # ── Step 2: Keyword-based clinical pattern matching (reliable fallback)
-        kb_results = self._knowledge_base_analysis(symptoms_text)
+        # ── Step 2: MedGemma-4B reasons to a diagnosis from the full text ─────
+        result = self._ask_medgemma(symptoms_text, ner_hint)
 
-        # ── Step 3: MedGemma text LLM for richer analysis ───────────────────
-        llm_result = self._llm_clinical_analysis(symptoms_text)
+        if result:
+            print(f"[{self.model_name}] AI Diagnosis: {result['diagnosis']} ({result['confidence']:.0%})")
+            return SpecialistOpinion(
+                model_name=self.model_name,
+                diagnosis=result["diagnosis"],
+                confidence=result["confidence"],
+                reasoning=result["reasoning"],
+                detected_conditions=result.get("detected_conditions", [result["diagnosis"]]),
+                key_findings={
+                    "model":        NER_MODEL,
+                    "display_model": DISPLAY_NAME,
+                    "ner_entities": [e.get("word", "") for e in ner_entities[:10]],
+                    "key_symptoms": result.get("key_symptoms", []),
+                }
+            )
 
-        # ── Merge results ────────────────────────────────────────────────────
-        all_conditions = list({c for c in ner_conditions + [r["diagnosis"] for r in kb_results]})
-        primary = self._select_primary(ner_conditions, kb_results, llm_result)
+        # ── Fallback: use NER entities if LLM fails ───────────────────────────
+        if ner_entities:
+            ner_labels = [e.get("word", "") for e in ner_entities if e.get("score", 0) > 0.5]
+            diagnosis = ", ".join(ner_labels[:3]) if ner_labels else "Clinical entities detected"
+            print(f"[{self.model_name}] MedGemma unavailable — using NER fallback")
+            return SpecialistOpinion(
+                model_name=self.model_name,
+                diagnosis=f"Clinical findings: {diagnosis}",
+                confidence=0.45,
+                reasoning=f"GatorTron NER extracted {len(ner_entities)} clinical entities. MedGemma reasoning unavailable.",
+                detected_conditions=ner_labels[:5],
+                key_findings={"model": NER_MODEL, "display_model": DISPLAY_NAME,
+                              "ner_entities": ner_labels}
+            )
 
-        print(f"[{self.model_name}] Primary: {primary['diagnosis']} ({primary['confidence']:.0%})")
-        print(f"[{self.model_name}] NER extracted {len(ner_entities)} entities")
+        return self._empty_result("AI analysis unavailable — check HF API token")
 
-        return SpecialistOpinion(
-            model_name=self.model_name,
-            diagnosis=primary["diagnosis"],
-            confidence=primary["confidence"],
-            reasoning=primary["reasoning"],
-            detected_conditions=all_conditions[:6],
-            key_findings={
-                "model": self.NER_MODEL,
-                "display_model": self.DISPLAY_NAME,
-                "ner_entities": [e.get("word", "") for e in ner_entities[:10]],
-                "ner_entity_types": list(set(e.get("entity_group", e.get("entity", "")) for e in ner_entities)),
-                "kb_matches": len(kb_results),
-                "llm_used": bool(llm_result)
-            }
-        )
+    # ── GatorTron NER (real trained model) ───────────────────────────────────
 
     def _run_gatortron_ner(self, text: str) -> List[Dict]:
-        """Run GatorTron NER to extract clinical entities."""
+        """Run GatorTron NER — this IS an AI model, not hardcoded logic."""
         try:
-            # GatorTron is trained on MIMIC/clinical notes, handles up to 512 tokens
-            entities = hf_client.ner(self.NER_MODEL, text[:512])
-            print(f"[{self.model_name}] GatorTron extracted {len(entities)} entity tokens")
-            # Aggregate word-pieces into full entity spans
-            merged = self._merge_entity_spans(entities)
+            entities = hf_client.ner(NER_MODEL, text[:512])
+            merged   = self._merge_entity_spans(entities)
+            print(f"[{self.model_name}] GatorTron NER: {len(merged)} clinical entities")
             return merged
         except Exception as e:
             print(f"[{self.model_name}] GatorTron NER error: {e}")
             return []
 
     def _merge_entity_spans(self, entities: List[Dict]) -> List[Dict]:
-        """Merge B-/I- token classification spans into full entity words."""
+        """Merge B-/I- BIO tag spans into full entity phrases."""
         if not entities:
             return []
-        merged = []
-        current = None
+        merged, current = [], None
         for ent in entities:
-            tag = ent.get("entity_group") or ent.get("entity", "O")
-            word = ent.get("word", "")
+            tag   = ent.get("entity_group") or ent.get("entity", "O")
+            word  = ent.get("word", "")
             score = ent.get("score", 0.0)
             if tag.startswith("B-") or (tag != "O" and current is None):
                 if current:
@@ -127,97 +137,95 @@ class SymptomAnalyzer:
             merged.append(current)
         return merged
 
-    def _entities_to_conditions(self, entities: List[Dict]) -> List[str]:
-        """Map NER entity labels to clinical condition names."""
-        conditions = []
-        disease_tags = {"DISEASE", "PROBLEM", "SYMPTOM", "DIAGNOSIS", "CONDITION"}
-        for ent in entities:
-            tag = ent.get("entity_group", "").upper()
-            if any(dt in tag for dt in disease_tags) and ent.get("score", 0) > 0.5:
-                conditions.append(ent.get("word", "").strip().title())
-        return list(set(conditions))
+    def _build_ner_hint(self, entities: List[Dict]) -> str:
+        """Convert NER output into a readable hint for MedGemma."""
+        if not entities:
+            return ""
+        disease_tags = {"DISEASE", "PROBLEM", "SYMPTOM", "DIAGNOSIS", "CONDITION", "SIGN"}
+        relevant = [
+            e["word"] for e in entities
+            if any(t in e.get("entity_group", "").upper() for t in disease_tags)
+            and e.get("score", 0) > 0.5
+        ]
+        if not relevant:
+            return ""
+        return f"\nGatorTron NER identified these clinical entities: {', '.join(relevant[:10])}\n"
 
-    def _knowledge_base_analysis(self, text: str) -> List[Dict]:
-        """Keyword-based mapping of clinical text to diagnostic conditions."""
-        text_lower = text.lower()
-        results = []
-        for cond_id, data in self.CONDITION_MAP.items():
-            hits = sum(1 for kw in data["keywords"] if kw in text_lower)
-            if hits > 0:
-                adj_conf = min(data["confidence"] * (0.75 + hits * 0.08), 0.96)
-                results.append({
-                    "condition_id": cond_id,
-                    "diagnosis": data["diagnosis"],
-                    "confidence": adj_conf,
-                    "hits": hits,
-                    "reasoning": f"Clinical pattern match: {hits} keyword(s) in text"
-                })
-        return sorted(results, key=lambda x: x["confidence"], reverse=True)
+    # ── MedGemma-4B reasoning ─────────────────────────────────────────────────
 
-    def _llm_clinical_analysis(self, text: str) -> Optional[Dict]:
-        """Use MedGemma 4B for richer clinical narrative understanding."""
+    def _ask_medgemma(self, clinical_text: str, ner_hint: str) -> Optional[Dict]:
+        """Ask MedGemma-4B to reason from clinical text to a diagnosis."""
+        truncated = clinical_text[:2000] if len(clinical_text) > 2000 else clinical_text
         prompt = (
-            "You are a clinical NLP specialist. Analyze this clinical text and identify:\n"
-            "1. Primary presenting symptoms\n"
-            "2. Most likely diagnosis (single best answer)\n"
-            "3. Confidence percentage (0-100)\n"
-            "4. Brief clinical reasoning (1-2 sentences)\n\n"
-            f"Clinical text: {text[:600]}\n\n"
-            "Format: Diagnosis: [name] | Confidence: [%] | Reasoning: [text]"
+            f"{SYSTEM_PROMPT}\n\n"
+            + SYMPTOM_ANALYSIS_TEMPLATE.format(
+                clinical_text=truncated,
+                ner_hint=ner_hint
+            )
         )
         try:
-            response = hf_client.generate_text(self.FALLBACK_MODEL, prompt, max_new_tokens=200, temperature=0.2)
+            response = hf_client.generate_text(
+                REASON_MODEL, prompt,
+                max_new_tokens=350,
+                temperature=0.15
+            )
             if not response or len(response.strip()) < 20:
                 return None
-            # Parse format
-            diag_match = re.search(r'Diagnosis:\s*([^|]+)', response, re.IGNORECASE)
-            conf_match = re.search(r'Confidence:\s*(\d+)', response, re.IGNORECASE)
-            reas_match = re.search(r'Reasoning:\s*(.+)', response, re.IGNORECASE | re.DOTALL)
-            if diag_match:
-                return {
-                    "diagnosis": diag_match.group(1).strip(),
-                    "confidence": float(conf_match.group(1)) / 100 if conf_match else 0.65,
-                    "reasoning": reas_match.group(1).strip()[:200] if reas_match else response[:200]
-                }
+            return self._parse_response(response)
         except Exception as e:
-            print(f"[{self.model_name}] LLM analysis error: {e}")
-        return None
+            print(f"[{self.model_name}] MedGemma error: {e}")
+            return None
 
-    def _select_primary(self, ner_conditions: List[str], kb_results: List[Dict],
-                        llm_result: Optional[Dict]) -> Dict:
-        """Decide the best primary diagnosis by weighting NER, KB, and LLM outputs."""
-        if kb_results and not llm_result:
-            top = kb_results[0]
-            return {"diagnosis": top["diagnosis"], "confidence": top["confidence"],
-                    "reasoning": f"GatorTron NER + clinical KB: {top['reasoning']}"}
+    def _parse_response(self, response: str) -> Optional[Dict]:
+        diag_m = re.search(r'Diagnosis:\s*([^\n]+)',    response, re.IGNORECASE)
+        conf_m = re.search(r'Confidence:\s*(\d+)',      response, re.IGNORECASE)
+        symp_m = re.search(r'Key Symptoms:\s*([^\n]+)', response, re.IGNORECASE)
+        reas_m = re.search(r'Reasoning:\s*(.+)',        response, re.IGNORECASE | re.DOTALL)
 
-        if llm_result and llm_result.get("confidence", 0) > 0.60:
-            return {
-                "diagnosis": llm_result["diagnosis"],
-                "confidence": llm_result["confidence"],
-                "reasoning": f"GatorTron NER + MedGemma reasoning: {llm_result['reasoning']}"
-            }
+        if not diag_m:
+            lines = [l.strip() for l in response.split('\n') if len(l.strip()) > 10]
+            if lines:
+                return {
+                    "diagnosis": lines[0].lstrip("*-•").strip()[:120],
+                    "confidence": 0.55,
+                    "reasoning": f"MedGemma-4B analysis: {response[:300]}",
+                    "key_symptoms": [],
+                    "detected_conditions": [],
+                }
+            return None
 
-        if kb_results:
-            top = kb_results[0]
-            return {"diagnosis": top["diagnosis"], "confidence": top["confidence"],
-                    "reasoning": f"Clinical pattern analysis: {top['hits']} matching indicators"}
+        diagnosis  = diag_m.group(1).strip().rstrip('.')
+        confidence = float(conf_m.group(1)) / 100 if conf_m else 0.68
 
-        if ner_conditions:
-            return {"diagnosis": ner_conditions[0], "confidence": 0.60,
-                    "reasoning": f"GatorTron NER clinical entity extraction"}
+        key_symptoms_text = symp_m.group(1).strip() if symp_m else ""
+        key_symptoms = [s.strip() for s in key_symptoms_text.split(',') if s.strip()]
 
-        return {"diagnosis": "Requires comprehensive clinical evaluation",
-                "confidence": 0.45, "reasoning": "Insufficient clinical text for definitive diagnosis"}
+        reasoning = reas_m.group(1).strip()[:400] if reas_m else f"MedGemma-4B: {diagnosis}"
 
+        return {
+            "diagnosis":           diagnosis,
+            "confidence":          min(max(confidence, 0.0), 1.0),
+            "reasoning":           f"GatorTron NER + MedGemma-4B: {reasoning}",
+            "key_symptoms":        key_symptoms,
+            "detected_conditions": [diagnosis] + key_symptoms[:3],
+        }
 
-from typing import Optional
+    def _empty_result(self, reason: str) -> SpecialistOpinion:
+        return SpecialistOpinion(
+            model_name=self.model_name,
+            diagnosis=reason,
+            confidence=0.0,
+            reasoning=reason,
+            detected_conditions=[],
+            key_findings={"model": NER_MODEL, "display_model": DISPLAY_NAME}
+        )
+
 
 symptom_analyzer = SymptomAnalyzer()
 
-# notes_analyzer is an alias — Layer 1 wires it as "notes_analyzer" key
-# but we reuse SymptomAnalyzer which handles both notes and symptoms
+
 class NotesAnalyzer(SymptomAnalyzer):
+    """Alias — clinical notes go through the same AI pipeline."""
     def __init__(self):
         super().__init__()
         self.model_name = "notes_analyzer"

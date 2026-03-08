@@ -42,3 +42,9 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Data & Output
+backend/uploads/
+backend/outputs/
+result/
+synthetic_data/

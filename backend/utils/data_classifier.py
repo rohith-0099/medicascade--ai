@@ -84,7 +84,11 @@ class DataClassifier:
         if any(keyword in section_lower for keyword in ['blood pressure', 'heart rate', 'temperature', 'pulse', 'bp:', 'hr:']):
             return "vital_signs"
         
-        if any(keyword in section_lower for keyword in ['hemoglobin', 'glucose', 'cholesterol', 'wbc', 'rbc', 'platelet']):
+        if any(keyword in section_lower for keyword in [
+            'hemoglobin', 'haemoglobin', 'glucose', 'cholesterol', 'wbc', 'rbc', 'platelet',
+            'ceruloplasmin', 'copper', 'bilirubin', 'troponin', 'creatinine', 'alt', 'ast',
+            'ldh', 'inr', 'albumin', 'ammonia', 'urine copper', '24-hr', '24hr',
+        ]):
             return "lab_results"
         
         if any(keyword in section_lower for keyword in ['history', 'previous', 'past medical', 'family history']):

@@ -1,274 +1,438 @@
-import { useState, useEffect, useRef } from 'react'
-import UploadSection from './components/UploadSection'
-import LoadingProgress from './components/LoadingProgress'
-import ResultsDashboard from './components/ResultsDashboard'
-import AIDebugView from './components/AIDebugView'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 
-/* ── Sidebar nav items ──────────────────────────────────────── */
-const NAV = [
-    { icon: '🏠', label: 'Dashboard', id: 'home' },
-    { icon: '📄', label: 'Upload Report', id: 'upload' },
-    { icon: '📊', label: 'Results', id: 'results' },
-    { icon: '🔬', label: 'AI Debug View', id: 'debug' },
+const MriTumorView = lazy(() => import('./components/MriTumorView'))
+const Brain3DViewer = lazy(() => import('./components/Brain3DViewer'))
+
+const PIPELINE = [
+  { id: '0', title: 'Layer 0', detail: 'Intake and structure facts with provenance' },
+  { id: '1', title: 'Layer 1', detail: 'Specialists produce candidate findings' },
+  { id: '2', title: 'Layer 2', detail: 'Validator confirms against trusted evidence' },
+  { id: '3', title: 'Layer 3', detail: 'Doctor report PDF with XAI and highlights' },
 ]
 
-const ARCHITECTURE_LAYERS = [
-    { n: '0', label: 'Data Extraction', cls: 'layer-0', detail: 'pdfplumber + PyPDF2' },
-    { n: '1', label: '5 Specialists', cls: 'layer-1', detail: 'MedGemma · GatorTron · BioGPT' },
-    { n: '2', label: 'Cross-Validation', cls: 'layer-2', detail: 'MedGemma-4B LLM' },
-    { n: '3', label: 'XAI Explainer', cls: 'layer-3', detail: 'SHAP + Grad-CAM + MedGemma' },
+const THINK_STAGES = [
+  { key: 'l0_1', layer: 'Layer 0', title: 'Opening PDF and indexing pages', ms: 1800 },
+  { key: 'l0_2', layer: 'Layer 0', title: 'Extracting demographics, labs, vitals', ms: 2200 },
+  { key: 'l0_3', layer: 'Layer 0', title: 'Building provenance map (page + span)', ms: 1800 },
+  { key: 'l1_1', layer: 'Layer 1', title: 'Notes specialist reasoning', ms: 1800 },
+  { key: 'l1_2', layer: 'Layer 1', title: 'Lab specialist pattern detection', ms: 1800 },
+  { key: 'l1_3', layer: 'Layer 1', title: 'Medication/history/exposure specialists', ms: 2200 },
+  { key: 'l1_4', layer: 'Layer 1', title: 'Merging specialist candidate diagnoses', ms: 1600 },
+  { key: 'l2_1', layer: 'Layer 2', title: 'Retrieving PubMed / NICE / WHO evidence', ms: 2200 },
+  { key: 'l2_2', layer: 'Layer 2', title: 'Validating supported/uncertain/contradicted claims', ms: 2600 },
+  { key: 'l3_1', layer: 'Layer 3', title: 'Generating Groq-powered XAI narrative', ms: 2200 },
+  { key: 'l3_2', layer: 'Layer 3', title: 'Annotating critical highlights in PDF', ms: 2000 },
+  { key: 'l3_3', layer: 'Layer 3', title: 'Assembling final doctor report', ms: 1400 },
 ]
 
-function App() {
-    const [state, setState] = useState({
-        isProcessing: false,
-        progress: 0,
-        currentLayer: '',
-        results: null,
-        error: null
+const TOTAL_STAGE_MS = THINK_STAGES.reduce((acc, s) => acc + s.ms, 0)
+
+export default function App() {
+  const [viewMode, setViewMode] = useState('clinical')
+  const [file, setFile] = useState(null)
+  const [scan, setScan] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState(null)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [pdfPages, setPdfPages] = useState(1)
+  const [activePage, setActivePage] = useState(1)
+  const [stageIndex, setStageIndex] = useState(0)
+  const [progress, setProgress] = useState(0)
+  const [thinkingLog, setThinkingLog] = useState([])
+
+  const pdfRef = useRef(null)
+  const scanRef = useRef(null)
+  const animationTickRef = useRef(null)
+  const pageTickRef = useRef(null)
+  const animationStartRef = useRef(0)
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl('')
+      setPdfPages(1)
+      setActivePage(1)
+      return
+    }
+
+    const url = URL.createObjectURL(file)
+    setPreviewUrl(url)
+    let cancelled = false
+
+    estimatePdfPages(file).then((count) => {
+      if (!cancelled) {
+        setPdfPages(count)
+        setActivePage(1)
+      }
     })
-    const [activeNav, setActiveNav] = useState('home')
-    const progressInterval = useRef(null)
 
-    const handleFileUpload = async (file, scan) => {
-        setState({ isProcessing: true, progress: 0, currentLayer: 'Uploading patient data...', results: null, error: null })
-        setActiveNav('upload')
+    return () => {
+      cancelled = true
+      URL.revokeObjectURL(url)
+    }
+  }, [file])
 
-        const formData = new FormData()
-        formData.append('file', file)
-        if (scan) formData.append('scan', scan)
+  useEffect(() => {
+    return () => {
+      stopProcessingAnimation()
+    }
+  }, [])
 
-        startProgressSimulation()
+  const stopProcessingAnimation = () => {
+    if (animationTickRef.current) {
+      clearInterval(animationTickRef.current)
+      animationTickRef.current = null
+    }
+    if (pageTickRef.current) {
+      clearInterval(pageTickRef.current)
+      pageTickRef.current = null
+    }
+  }
 
-        try {
-            const response = await fetch('/api/diagnose', { method: 'POST', body: formData })
-            if (!response.ok) throw new Error(`Server error: ${response.status}`)
-            const data = await response.json()
-            stopProgressSimulation()
-            setState({ isProcessing: false, progress: 100, currentLayer: 'Analysis complete!', results: data, error: null })
-            setActiveNav('results')
-        } catch (error) {
-            stopProgressSimulation()
-            setState(prev => ({ ...prev, isProcessing: false, error: error.message }))
+  const startProcessingAnimation = () => {
+    stopProcessingAnimation()
+    setProgress(2)
+    setStageIndex(0)
+    setThinkingLog([`Started: ${THINK_STAGES[0].layer} - ${THINK_STAGES[0].title}`])
+    animationStartRef.current = Date.now()
+
+    animationTickRef.current = setInterval(() => {
+      const elapsed = Date.now() - animationStartRef.current
+      const ratio = Math.min(elapsed / TOTAL_STAGE_MS, 0.97)
+      const pct = Math.min(97, 3 + Math.floor(ratio * 94))
+      setProgress(pct)
+
+      let cumulative = 0
+      let idx = THINK_STAGES.length - 1
+      for (let i = 0; i < THINK_STAGES.length; i++) {
+        cumulative += THINK_STAGES[i].ms
+        if (elapsed <= cumulative) {
+          idx = i
+          break
         }
+      }
+
+      setStageIndex((prev) => {
+        if (idx !== prev) {
+          const stage = THINK_STAGES[idx]
+          setThinkingLog((logs) => [...logs.slice(-9), `${stage.layer}: ${stage.title}`])
+        }
+        return idx
+      })
+    }, 650)
+
+    pageTickRef.current = setInterval(() => {
+      setActivePage((prev) => {
+        if (pdfPages <= 1) return 1
+        return prev >= pdfPages ? 1 : prev + 1
+      })
+    }, 1700)
+  }
+
+  const upload = async () => {
+    if (!file) return
+    const form = new FormData()
+    form.append('file', file)
+    if (scan) form.append('scan', scan)
+
+    setLoading(true)
+    setError('')
+    setResult(null)
+    startProcessingAnimation()
+
+    try {
+      const res = await fetch('/api/diagnose', { method: 'POST', body: form })
+      if (!res.ok) throw new Error(`API error ${res.status}`)
+      const data = await res.json()
+      setResult(data)
+      setProgress(100)
+      setStageIndex(THINK_STAGES.length - 1)
+      setThinkingLog((logs) => [...logs.slice(-9), 'Layer 3: Report complete and ready to download'])
+    } catch (e) {
+      setError(e.message || 'Upload failed')
+    } finally {
+      setLoading(false)
+      stopProcessingAnimation()
     }
+  }
 
-    const startProgressSimulation = () => {
-        if (progressInterval.current) clearInterval(progressInterval.current)
-        const layers = [
-            { progress: 10, label: 'Layer 0 — Reading patient PDF...' },
-            { progress: 20, label: 'Layer 0 — Extracting text & tables...' },
-            { progress: 30, label: 'Layer 0 — Classifying data sections...' },
-            { progress: 42, label: 'Layer 1 — Launching 5 specialist models...' },
-            { progress: 52, label: 'Layer 1 — Symptom analysis (GatorTron)...' },
-            { progress: 60, label: 'Layer 1 — Lab interpretation (MedGemma)...' },
-            { progress: 66, label: 'Layer 1 — Imaging analysis (MedGemma)...' },
-            { progress: 72, label: 'Layer 1 — Literature matching (BioGPT)...' },
-            { progress: 78, label: 'Layer 1 — Risk scoring (LightGBM + OpenMed)...' },
-            { progress: 84, label: 'Layer 2 — Cross-validating specialist reports...' },
-            { progress: 89, label: 'Layer 2 — Resolving conflicts & anomaly detection...' },
-            { progress: 93, label: 'Layer 3 — Generating XAI explanation (MedGemma)...' },
-            { progress: 97, label: 'Layer 3 — Annotating evidence & building report...' },
-            { progress: 98, label: 'Finalising diagnosis...' },
-        ]
-        let idx = 0
-        progressInterval.current = setInterval(() => {
-            if (idx < layers.length) {
-                const layer = layers[idx]
-                setState(prev => ({ ...prev, progress: layer.progress, currentLayer: layer.label }))
-                idx++
-            }
-        }, 1800)
-    }
+  const resetAll = () => {
+    stopProcessingAnimation()
+    setFile(null)
+    setScan(null)
+    setResult(null)
+    setError('')
+    setLoading(false)
+    setProgress(0)
+    setStageIndex(0)
+    setThinkingLog([])
+  }
 
-    const stopProgressSimulation = () => {
-        if (progressInterval.current) { clearInterval(progressInterval.current); progressInterval.current = null }
-    }
+  const ResultValue = ({ label, value }) => (
+    <div className="glass-card" style={{ padding: 14, border: '1px solid var(--border)' }}>
+      <div style={{ color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
+      <div style={{ color: 'var(--text-primary)', marginTop: 4, fontWeight: 700, fontSize: 20 }}>{value}</div>
+    </div>
+  )
 
-    const handleReset = () => {
-        stopProgressSimulation()
-        setState({ isProcessing: false, progress: 0, currentLayer: '', results: null, error: null })
-        setActiveNav('home')
-    }
+  const summarizeFindings = (findings) => {
+    if (!findings || typeof findings !== 'object') return ['No specialist detail available']
+    const items = []
+    if (findings.primary_suspect) items.push(`Primary suspect: ${findings.primary_suspect}`)
+    if (Array.isArray(findings.patterns) && findings.patterns.length) items.push(`Patterns: ${findings.patterns.slice(0, 2).join('; ')}`)
+    if (Array.isArray(findings.red_flags) && findings.red_flags.length) items.push(`Red flags: ${findings.red_flags.slice(0, 2).join('; ')}`)
+    if (Array.isArray(findings.risk_flags) && findings.risk_flags.length) items.push(`Risk flags: ${findings.risk_flags.slice(0, 2).join('; ')}`)
+    if (Array.isArray(findings.interactions) && findings.interactions.length) items.push(`Interactions: ${findings.interactions.slice(0, 2).join('; ')}`)
+    if (Array.isArray(findings.comorbidities) && findings.comorbidities.length) items.push(`Comorbidities: ${findings.comorbidities.slice(0, 2).join('; ')}`)
+    if (Array.isArray(findings.consider) && findings.consider.length) items.push(`Exposure considerations: ${findings.consider.slice(0, 2).join('; ')}`)
+    if (findings.diagnosis) items.push(`Imaging diagnosis: ${findings.diagnosis}`)
+    return items.length ? items.slice(0, 4) : ['Summary available in final PDF report']
+  }
 
-    useEffect(() => () => { if (progressInterval.current) clearInterval(progressInterval.current) }, [])
+  const reportDownloadUrl = result?.case_id ? `/api/report/${result.case_id}` : (result?.artifacts?.report_pdf || '')
 
+  if (viewMode === 'mri') {
     return (
-        <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+      <Suspense fallback={<div style={{ minHeight: '100vh', background: 'var(--bg-base)', color: 'var(--text-secondary)', padding: 24 }}>Loading MRI workspace...</div>}>
+        <MriTumorView onBack={() => setViewMode('clinical')} />
+      </Suspense>
+    )
+  }
 
-            {/* ── Sidebar ──────────────────────────────────────────── */}
-            <aside className="sidebar" style={{ width: '240px', flexShrink: 0 }}>
+  if (viewMode === '3d-brain') {
+    return (
+      <Suspense fallback={<div style={{ minHeight: '100vh', background: '#0a0e27', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading 3D Brain Viewer...</div>}>
+        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ background: 'rgba(15, 20, 45, 0.95)', padding: '12px 20px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 style={{ color: 'white', margin: 0, fontSize: '18px' }}>3D Brain Tumor Viewer</h2>
+            <button onClick={() => setViewMode('clinical')} style={{ padding: '8px 16px', background: '#4a90e2', border: 'none', borderRadius: '5px', color: 'white', cursor: 'pointer' }}>Back to Clinical</button>
+          </div>
+          <Brain3DViewer />
+        </div>
+      </Suspense>
+    )
+  }
 
-                {/* Logo */}
-                <div className="sidebar-logo">
-                    <div className="sidebar-logo-icon">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                            <rect x="10" y="2" width="4" height="20" rx="2" fill="white" />
-                            <rect x="2" y="10" width="20" height="4" rx="2" fill="white" />
-                        </svg>
-                    </div>
-                    <div>
-                        <div className="sidebar-title">MediCascade AI</div>
-                        <div className="sidebar-subtitle">Disease Prediction Engine</div>
-                    </div>
-                </div>
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg-base)' }}>
+      <aside className="sidebar" style={{ width: 250 }}>
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-icon">
+            <span style={{ color: '#041006', fontWeight: 800 }}>MC</span>
+          </div>
+          <div>
+            <div className="sidebar-title">MediCascade</div>
+            <div className="sidebar-subtitle">Doctor-first workflow</div>
+          </div>
+        </div>
+        <div className="sidebar-section">Data Flow</div>
+        {PIPELINE.map((p) => (
+          <div key={p.id} style={{ marginBottom: 8, border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
+            <div style={{ color: 'var(--accent-light)', fontSize: 13, fontWeight: 700 }}>{p.title}</div>
+            <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{p.detail}</div>
+          </div>
+        ))}
+      </aside>
 
-                <hr className="sidebar-divider" />
+      <main style={{ flex: 1, padding: '28px 34px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div className="page-header">
+          <h1 className="page-title" style={{ marginBottom: 6 }}>Clinical Decision Report</h1>
+          <p className="page-description">
+            Watch the live AI processing path from Layer 0 to Layer 3 while your PDF is being analyzed.
+          </p>
+          <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+            <button className="btn-secondary" onClick={() => setViewMode('mri')} style={{}}>
+              Open Brain MRI Modality View
+            </button>
+            <button className="btn-secondary" onClick={() => setViewMode('3d-brain')} style={{}}>
+              Open 3D Brain Tumor Viewer
+            </button>
+          </div>
+        </div>
 
-                {/* Nav */}
-                <div className="sidebar-section">Navigation</div>
-                {NAV.map(item => (
-                    <div
-                        key={item.id}
-                        className={`sidebar-item ${activeNav === item.id ? 'active' : ''}`}
-                        onClick={() => {
-                            if (item.id === 'results' && !state.results) return
-                            if (item.id === 'debug' && !state.results) return
-                            setActiveNav(item.id)
+        <div className="glass-card" style={{ padding: 20, border: '1px solid var(--border-strong)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
+            <div
+              onClick={() => pdfRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault()
+                const f = e.dataTransfer.files?.[0]
+                if (f?.type === 'application/pdf') setFile(f)
+              }}
+              style={{
+                border: `1.5px dashed ${file ? 'var(--accent)' : 'var(--border)'}`,
+                borderRadius: 12,
+                padding: 20,
+                cursor: 'pointer',
+                background: 'linear-gradient(120deg, var(--accent-dim), transparent)',
+              }}
+            >
+              <input ref={pdfRef} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={(e) => setFile(e.target.files?.[0] || null)} />
+              <div style={{ color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Patient document</div>
+              <div style={{ color: 'var(--text-primary)', marginTop: 8, fontWeight: 700, fontSize: 18 }}>
+                {file ? file.name : 'Click or drop hospital PDF'}
+              </div>
+              {file && <div style={{ color: 'var(--text-secondary)', marginTop: 8, fontSize: 12 }}>Detected pages (estimate): {pdfPages}</div>}
+            </div>
+
+            <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: 'var(--bg-hover)' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Optional imaging</div>
+              <input ref={scanRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => setScan(e.target.files?.[0] || null)} />
+              <button className="btn-secondary" onClick={() => scanRef.current?.click()} style={{ width: '100%', marginTop: 10 }}>
+                {scan ? scan.name : 'Attach scan image'}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14 }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{loading ? `Processing... ${progress}%` : 'Ready'}</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn-secondary" onClick={resetAll}>Reset</button>
+              <button className="btn-primary" disabled={!file || loading} onClick={upload}>{loading ? 'Running' : 'Generate Report'}</button>
+            </div>
+          </div>
+        </div>
+
+        {loading && (
+          <div className="glass-card" style={{ border: '1px solid var(--border)', padding: 16 }}>
+            <div style={{ color: 'var(--text-primary)', fontWeight: 700, marginBottom: 10 }}>Live AI Transparency View</div>
+            <div style={{ height: 8, borderRadius: 999, background: 'rgba(148,163,184,0.18)', overflow: 'hidden', marginBottom: 14 }}>
+              <div style={{ width: `${progress}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent), var(--accent-light))', transition: 'width 0.4s ease' }} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 14 }}>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+                {THINK_STAGES.map((stage, idx) => {
+                  const done = idx < stageIndex
+                  const active = idx === stageIndex
+                  return (
+                    <div key={stage.key} style={{ display: 'flex', gap: 10, marginBottom: 9, opacity: done || active ? 1 : 0.45 }}>
+                      <div
+                        style={{
+                          width: 11,
+                          height: 11,
+                          marginTop: 4,
+                          borderRadius: '50%',
+                          background: done ? 'var(--success)' : (active ? 'var(--accent)' : 'var(--text-muted)'),
+                          boxShadow: active ? '0 0 12px rgba(59,130,246,0.7)' : 'none',
                         }}
-                        style={{ opacity: (item.id === 'results' || item.id === 'debug') && !state.results ? 0.4 : 1 }}
-                    >
-                        <span className="icon">{item.icon}</span>
-                        {item.label}
-                    </div>
-                ))}
-
-                <hr className="sidebar-divider" />
-
-                {/* Architecture info */}
-                <div className="sidebar-section">Architecture</div>
-                {ARCHITECTURE_LAYERS.map(l => (
-                    <div key={l.n} style={{ padding: '6px 12px', marginBottom: '2px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                            <span className={`layer-badge ${l.cls}`} style={{ padding: '2px 8px 2px 4px', fontSize: '10px' }}>
-                                <span className="dot" style={{ width: '16px', height: '16px', fontSize: '10px' }}>{l.n}</span>
-                                {l.label}
-                            </span>
+                      />
+                      <div>
+                        <div style={{ color: done || active ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: 12, fontWeight: 700 }}>
+                          {stage.layer}
                         </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', paddingLeft: '4px' }}>{l.detail}</div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{stage.title}</div>
+                      </div>
                     </div>
-                ))}
+                  )
+                })}
+              </div>
 
-                <hr className="sidebar-divider" />
-
-                {/* Status indicator */}
-                <div style={{ padding: '8px 12px' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>System</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--accent)' }}>
-                        <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--accent)', flexShrink: 0, boxShadow: '0 0 6px var(--accent-glow)' }} />
-                        Backend Connected
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>HF Token ✓ · 5 Models Ready</div>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+                <div style={{ color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+                  PDF Focus Window
                 </div>
-            </aside>
-
-            {/* ── Main ─────────────────────────────────────────────── */}
-            <main style={{ flex: 1, padding: '32px 40px', maxWidth: '1100px' }}>
-
-                {/* ── Page Header ─────────────────────────────────── */}
-                <div className="page-header fade-in">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div>
-                            <h1 className="page-title">
-                                {activeNav === 'home' && 'Dashboard'}
-                                {activeNav === 'upload' && 'Upload Patient Report'}
-                                {activeNav === 'results' && 'Diagnosis Results'}
-                                {activeNav === 'debug' && 'AI Debug View'}
-                            </h1>
-                            <p className="page-description">
-                                {activeNav === 'home' && 'Upload a patient PDF to run the full cascade diagnosis pipeline.'}
-                                {activeNav === 'upload' && 'Provide a medical report PDF and optionally a scan image.'}
-                                {activeNav === 'results' && 'Cross-validated diagnosis from 5 specialist models + XAI explanation.'}
-                                {activeNav === 'debug' && 'Raw specialist opinions and model confidence scores.'}
-                            </p>
-                        </div>
-                        {state.results && (
-                            <button className="btn-secondary" onClick={handleReset}>← New Analysis</button>
-                        )}
+                {previewUrl ? (
+                  <div>
+                    <div style={{ color: 'var(--accent-light)', fontSize: 12, marginBottom: 8 }}>
+                      AI focus page: {activePage} / {pdfPages}
                     </div>
-                </div>
-
-                {/* ── Error ───────────────────────────────────────── */}
-                {state.error && (
-                    <div className="error-box slide-up" style={{ marginBottom: '24px' }}>
-                        <strong>Analysis Error:</strong> {state.error}
-                        <button onClick={handleReset} style={{ marginLeft: '12px', fontWeight: 600, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
-                            Try again
-                        </button>
-                    </div>
+                    <embed
+                      key={`${previewUrl}-${activePage}`}
+                      src={`${previewUrl}#page=${activePage}&toolbar=0&navpanes=0&scrollbar=0`}
+                      type="application/pdf"
+                      style={{ width: '100%', height: 330, borderRadius: 8, border: '1px solid var(--border)' }}
+                    />
+                  </div>
+                ) : (
+                  <div className="warning-box">PDF preview will appear once a file is uploaded.</div>
                 )}
 
-                {/* ── Content ─────────────────────────────────────── */}
-                <div className="slide-up">
-
-                    {/* Dashboard home — quick stats + upload CTA */}
-                    {activeNav === 'home' && !state.results && !state.isProcessing && (
-                        <>
-                            {/* Metric row */}
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '28px' }}>
-                                {[
-                                    { label: 'Specialist Models', value: '5', delta: 'MedGemma · GatorTron · BioGPT' },
-                                    { label: 'Architecture Layers', value: '4', delta: 'L0 → L1 → L2 → L3' },
-                                    { label: 'Cross-Validation', value: '100%', delta: 'All specialists checked' },
-                                    { label: 'XAI Output', value: '✓', delta: 'SHAP + Grad-CAM' },
-                                ].map(m => (
-                                    <div key={m.label} className="metric-card">
-                                        <div className="metric-label">{m.label}</div>
-                                        <div className="metric-value">{m.value}</div>
-                                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{m.delta}</div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Info box */}
-                            <div className="info-box" style={{ marginBottom: '24px' }}>
-                                <strong>ℹ️  How it works:</strong> Upload a patient medical report PDF (lab results, clinical notes, imaging reports, history).
-                                The system runs 5 specialist AI models in parallel, cross-validates their outputs, and generates an XAI-annotated diagnosis report.
-                            </div>
-
-                            {/* Upload section */}
-                            <UploadSection onFileUpload={handleFileUpload} />
-                        </>
-                    )}
-
-                    {/* Upload tab */}
-                    {activeNav === 'upload' && !state.isProcessing && !state.results && (
-                        <UploadSection onFileUpload={handleFileUpload} />
-                    )}
-
-                    {/* Processing */}
-                    {state.isProcessing && (
-                        <LoadingProgress progress={state.progress} currentLayer={state.currentLayer} />
-                    )}
-
-                    {/* Results */}
-                    {state.results && !state.isProcessing && activeNav === 'results' && (
-                        <ResultsDashboard results={state.results} onReset={handleReset} />
-                    )}
-
-                    {/* Debug */}
-                    {state.results && !state.isProcessing && activeNav === 'debug' && (
-                        <AIDebugView diagnosisResult={state.results} />
-                    )}
-
-                    {/* Auto-show results/debug when no explicit tab selected */}
-                    {state.results && !state.isProcessing && activeNav === 'home' && (
-                        <>
-                            <ResultsDashboard results={state.results} onReset={handleReset} />
-                            <div style={{ marginTop: '32px' }}>
-                                <AIDebugView diagnosisResult={state.results} />
-                            </div>
-                        </>
-                    )}
+                <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 6 }}>Live reasoning log</div>
+                  {thinkingLog.slice(-5).map((line, i) => (
+                    <div key={i} style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 4 }}>
+                      {line}
+                    </div>
+                  ))}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
 
-                {/* ── Footer ──────────────────────────────────────── */}
-                <footer style={{ marginTop: '60px', paddingTop: '20px', borderTop: '1px solid var(--border)', fontSize: '12px', color: 'var(--text-muted)' }}>
-                    MediCascade AI v2.0 · Research & Demonstration Purposes Only · © 2026
-                </footer>
-            </main>
-        </div>
-    )
+        {error && <div className="error-box">{error}</div>}
+
+        {result && !loading && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 12 }}>
+              <ResultValue label="Case ID" value={result.case_id} />
+              <ResultValue label="Primary Diagnosis" value={result.primary_diagnosis || 'Undetermined'} />
+              <ResultValue label="Confidence" value={`${Math.round((result.confidence || 0) * 100)}%`} />
+              <ResultValue label="Processing Time" value={`${(result.processing_time || result.total_processing_time || 0).toFixed(1)}s`} />
+              <ResultValue label="Evidence Items" value={result.evidence_items_count || result.evidence_count || 0} />
+              <ResultValue label="Specialist Views" value={result.specialist_views_count || (result.layer1_views || []).length} />
+            </div>
+
+            <div className="glass-card" style={{ padding: 16, border: '1px solid var(--border)' }}>
+              <div style={{ color: 'var(--text-primary)', fontWeight: 700, marginBottom: 8 }}>Layer 1 Specialist Views</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: 10 }}>
+                {(result.layer1_views || []).map((v) => (
+                  <div key={v.agent} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, background: 'rgba(57,255,20,0.03)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: 13 }}>{v.role || v.agent}</div>
+                      <div style={{ color: 'var(--accent-light)', fontSize: 12, fontWeight: 700 }}>{Math.round((v.confidence || 0) * 100)}%</div>
+                    </div>
+                    {summarizeFindings(v.findings).map((line, idx) => (
+                      <div key={idx} style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 4 }}>{line}</div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="glass-card" style={{ padding: 16, border: '1px solid var(--border)' }}>
+              <div style={{ color: 'var(--text-primary)', fontWeight: 700, marginBottom: 8 }}>Data Flow Transparency</div>
+              {(result.data_flow_trace || []).map((step, idx) => (
+                <div key={idx} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                  <div style={{ color: 'var(--accent-light)', fontWeight: 700, fontSize: 12 }}>{step.layer} ({step.status})</div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>Input: {step.input}</div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Output: {step.output}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="glass-card" style={{ padding: 16, border: '1px solid var(--border)' }}>
+              <div style={{ color: 'var(--text-primary)', fontWeight: 700, marginBottom: 8 }}>Doctor Report</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 10 }}>
+                Download the complete annotated report with detailed XAI explanation, evidence links, and highlighted critical values.
+              </div>
+              {reportDownloadUrl ? (
+                <a className="btn-primary" href={reportDownloadUrl} target="_blank" rel="noreferrer">
+                  Download Annotated PDF
+                </a>
+              ) : (
+                <div className="warning-box">PDF report not available yet.</div>
+              )}
+            </div>
+          </>
+        )}
+      </main>
+    </div>
+  )
 }
 
-export default App
+async function estimatePdfPages(file) {
+  try {
+    const buffer = await file.arrayBuffer()
+    // A lightweight page count estimate based on PDF object markers.
+    const slice = buffer.byteLength > 8_000_000 ? buffer.slice(0, 8_000_000) : buffer
+    const text = new TextDecoder('latin1').decode(slice)
+    const matches = text.match(/\/Type\s*\/Page\b/g)
+    const count = matches ? matches.length : 1
+    return Math.max(1, Math.min(400, count))
+  } catch {
+    return 1
+  }
+}
