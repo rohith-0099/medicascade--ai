@@ -18,12 +18,12 @@ from utils.drug_checker import check_medications     # FDA drug safety
 # ── Specialist model registry ────────────────────────────────────────────────
 SPECIALIST_CONFIGS = {
     "notes":            ("llama-3.3-70b-versatile",                      "Meta LLaMA 3.3 70B Versatile"),
-    "labs":             ("meta-llama/llama-4-scout-17b-16e-instruct",    "Meta LLaMA 4 Scout 17B"),
+    "labs":             ("llama-3.3-70b-versatile",                      "Meta LLaMA 3.3 70B Versatile"),
     "medication":       ("llama-3.3-70b-versatile",                      "Meta LLaMA 3.3 70B Versatile"),
     "history_genetics": ("qwen/qwen3-32b",                               "Qwen 3 32B"),
     "exposure":         ("llama-3.1-8b-instant",                         "Meta LLaMA 3.1 8B Instant"),
-    "risk":             ("meta-llama/llama-4-maverick-17b-128e-instruct", "Meta LLaMA 4 Maverick 17B"),
-    "imaging":          ("meta-llama/llama-4-scout-17b-16e-instruct",    "Meta LLaMA 4 Scout 17B"),
+    "risk":             ("llama-3.3-70b-versatile",                      "Meta LLaMA 3.3 70B Versatile"),
+    "imaging":          ("llama-3.3-70b-versatile",                      "Meta LLaMA 3.3 70B Versatile"),
 }
 
 
