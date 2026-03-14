@@ -60,3 +60,4 @@ backend/kagglemodel/
 backend/.env
 backend/.env.*
 !backend/.env.example
+.aider*
