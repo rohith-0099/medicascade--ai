@@ -138,23 +138,6 @@ class PatientData(BaseModel):
     raw_text: str = ""
 
 
-class SpecialistOpinion(BaseModel):
-    model_name: str
-    diagnosis: str
-    confidence: float = Field(ge=0.0, le=1.0)
-    reasoning: str = ""
-    detected_conditions: List[str] = Field(default_factory=list)
-    key_findings: Dict[str, Any] = Field(default_factory=dict)
-
-    model_config = {"protected_namespaces": ()}
-
-
-class Layer1Output(BaseModel):
-    specialist_opinions: List[SpecialistOpinion]
-    processing_time: float
-    timestamp: datetime = Field(default_factory=datetime.now)
-
-
 class FinalDiagnosis(BaseModel):
     primary_diagnosis: str
     confidence: float = Field(ge=0.0, le=1.0)
@@ -181,16 +164,6 @@ class AnnotatedReport(BaseModel):
     annotated_pdf_path: str
     annotated_images_paths: List[str] = Field(default_factory=list)
     visualization_data: Dict[str, Any] = Field(default_factory=dict)
-
-
-class DiagnosisResponse(BaseModel):
-    success: bool
-    patient_data: PatientData
-    layer1_output: Layer1Output
-    layer2_diagnosis: FinalDiagnosis
-    layer3_report: AnnotatedReport
-    total_processing_time: float
-    timestamp: datetime = Field(default_factory=datetime.now)
 
 
 # Resolve forward reference
