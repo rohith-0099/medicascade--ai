@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from database import init_db, save_case, get_case_history, get_case, save_feedback, get_stats
+from utils.medical_screener import screen_medical_document
 from utils.icd_mapper import get_icd10_code
 
 # Setup logging
@@ -98,6 +99,25 @@ async def diagnose(file: UploadFile = File(...)):
     try:
         with open(upload_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+
+        # ── Medical content screen ─────────────────────────────────────────
+        # Fast Groq binary check before running the full 4-layer pipeline.
+        # Gracefully skipped if Groq is offline or the API key is missing.
+        is_medical, screen_reason = screen_medical_document(upload_path)
+        if not is_medical:
+            try:
+                os.remove(upload_path)
+            except OSError:
+                pass
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{screen_reason} "
+                    "Please upload a valid medical or clinical document such as a "
+                    "patient record, lab report, discharge summary, or prescription."
+                ),
+            )
+        # ──────────────────────────────────────────────────────────────────
 
         # Layer 0 — deterministic intake
         layer0 = layer0_processor.process(upload_path)
