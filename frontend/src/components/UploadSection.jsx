@@ -12,9 +12,7 @@ const SPECIALIST_ICONS = {
 export default function UploadSection({ onFileUpload }) {
     const [isDragging, setIsDragging] = useState(false)
     const [selectedFile, setSelectedFile] = useState(null)
-    const [selectedScan, setSelectedScan] = useState(null)
     const fileInputRef = useRef(null)
-    const scanInputRef = useRef(null)
 
     const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true) }
     const handleDragLeave = () => setIsDragging(false)
@@ -23,16 +21,12 @@ export default function UploadSection({ onFileUpload }) {
         const file = e.dataTransfer.files[0]; handleFile(file)
     }
     const handleFileSelect = (e) => handleFile(e.target.files[0])
-    const handleScanSelect = (e) => {
-        const file = e.target.files[0]
-        if (file && file.type.startsWith('image/')) setSelectedScan(file)
-        else alert('Please select an image file (JPG, PNG)')
-    }
+
     const handleFile = (file) => {
         if (file && file.type === 'application/pdf') setSelectedFile(file)
         else if (file) alert('Please select a PDF file')
     }
-    const handleSubmit = () => { if (selectedFile) onFileUpload(selectedFile, selectedScan) }
+    const handleSubmit = () => { if (selectedFile) onFileUpload(selectedFile) }
 
     const fmtSize = (bytes) => {
         if (bytes < 1024) return bytes + ' B'
@@ -49,12 +43,12 @@ export default function UploadSection({ onFileUpload }) {
                         Upload Patient Data
                     </h2>
                     <p style={{ color: '#64748b', fontSize: '1rem' }}>
-                        Clinical PDF report is required. Medical scan image is optional for enhanced imaging analysis.
+                        Clinical PDF report is required for cascade analysis.
                     </p>
                 </div>
 
                 {/* Upload Zones */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '32px' }}>
+                <div style={{ marginBottom: '32px' }}>
                     {/* PDF Zone */}
                     <div
                         onClick={() => fileInputRef.current?.click()}
@@ -119,60 +113,6 @@ export default function UploadSection({ onFileUpload }) {
                             </div>
                         )}
                     </div>
-
-                    {/* Scan/Image Zone */}
-                    <div
-                        onClick={() => scanInputRef.current?.click()}
-                        style={{
-                            border: selectedScan
-                                ? '2px solid rgba(16,185,129,0.5)'
-                                : '2px dashed rgba(99,102,241,0.3)',
-                            borderRadius: '16px',
-                            padding: '32px 24px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                            transition: 'all 0.3s ease',
-                            background: selectedScan ? 'rgba(16,185,129,0.06)' : 'rgba(99,102,241,0.04)'
-                        }}
-                    >
-                        <input type="file" ref={scanInputRef} onChange={handleScanSelect} accept="image/png,image/jpeg" className="hidden" />
-
-                        {selectedScan ? (
-                            <div>
-                                <div style={{
-                                    width: '64px', height: '64px', margin: '0 auto 16px',
-                                    background: 'rgba(16,185,129,0.2)', borderRadius: '16px',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                }}>
-                                    <svg width="32" height="32" fill="none" stroke="#10b981" strokeWidth="2" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                </div>
-                                <p style={{ color: '#10b981', fontWeight: 700, marginBottom: '6px' }}>Scan Ready</p>
-                                <p style={{ color: '#94a3b8', fontSize: '0.85rem', wordBreak: 'break-all' }}>{selectedScan.name}</p>
-                                <p style={{ color: '#475569', fontSize: '0.78rem', marginTop: '4px' }}>{fmtSize(selectedScan.size)}</p>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); setSelectedScan(null) }}
-                                    style={{ marginTop: '12px', color: '#ef4444', fontSize: '0.78rem', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
-                                >Remove</button>
-                            </div>
-                        ) : (
-                            <div>
-                                <div style={{
-                                    width: '64px', height: '64px', margin: '0 auto 16px',
-                                    background: 'rgba(99,102,241,0.15)', borderRadius: '16px',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                }}>
-                                    <svg width="32" height="32" fill="none" stroke="#818cf8" strokeWidth="2" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                    </svg>
-                                </div>
-                                <p style={{ color: '#e2e8f0', fontWeight: 700, marginBottom: '6px' }}>Medical Scan / Image</p>
-                                <p style={{ color: '#64748b', fontSize: '0.85rem' }}>X-ray, MRI, CT (JPG/PNG)</p>
-                                <span className="medical-badge badge-warning" style={{ marginTop: '12px', display: 'inline-flex' }}>Optional</span>
-                            </div>
-                        )}
-                    </div>
                 </div>
 
                 {/* Submit Button */}
@@ -183,7 +123,6 @@ export default function UploadSection({ onFileUpload }) {
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                             </svg>
                             Start Cascade Analysis
-                            {selectedScan && <span style={{ fontSize: '0.8em', opacity: 0.8, marginLeft: '4px' }}>+ Scan</span>}
                         </button>
                     </div>
                 )}

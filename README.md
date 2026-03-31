@@ -113,3 +113,9 @@ The system automatically highlights the tumor region with a **Red Circle** and p
 
 ## ⚖️ Disclaimer
 *This project is a research prototype designed for the Universal AI Disease Prediction Hackathon. It is NOT a certified medical device and should not be used for actual clinical diagnosis.*
+
+# First, kill any existing process on port 8000
+kill -9 $(lsof -t -i:8000)
+
+# Then, run the backend from the /backend directory
+cd backend && ./venv/bin/uvicorn main:app --reload

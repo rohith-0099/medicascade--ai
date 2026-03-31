@@ -41,7 +41,6 @@ const AGENT_COLORS = {
 export default function App() {
   const [viewMode, setViewMode] = useState('clinical')
   const [file, setFile] = useState(null)
-  const [scan, setScan] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
@@ -53,7 +52,7 @@ export default function App() {
   const [thinkingLog, setThinkingLog] = useState([])
 
   const pdfRef = useRef(null)
-  const scanRef = useRef(null)
+
   const animationTickRef = useRef(null)
   const pageTickRef = useRef(null)
   const animationStartRef = useRef(0)
@@ -119,7 +118,7 @@ export default function App() {
     if (!file) return
     const form = new FormData()
     form.append('file', file)
-    if (scan) form.append('scan', scan)
+
 
     setLoading(true); setError(''); setResult(null)
     startProcessingAnimation()
@@ -142,7 +141,7 @@ export default function App() {
 
   const resetAll = () => {
     stopProcessingAnimation()
-    setFile(null); setScan(null); setResult(null); setError('')
+    setFile(null); setResult(null); setError('')
     setLoading(false); setProgress(0); setStageIndex(0); setThinkingLog([])
   }
 
@@ -242,7 +241,7 @@ export default function App() {
           <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 14, fontFamily: 'monospace' }}>
             ▸ Input Data
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
+          <div>
             {/* PDF Drop Zone */}
             <div
               onClick={() => pdfRef.current?.click()}
@@ -275,22 +274,6 @@ export default function App() {
               )}
             </div>
 
-            {/* Scan upload */}
-            <div style={{
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              padding: '18px 14px',
-              background: 'var(--bg-hover)',
-            }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'monospace', marginBottom: 8 }}>Optional Scan Image</div>
-              <input ref={scanRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => setScan(e.target.files?.[0] || null)} />
-              <button className="btn-secondary" onClick={() => scanRef.current?.click()} style={{ width: '100%', marginBottom: 8 }}>
-                {scan ? `✓ ${scan.name}` : '+ Attach imaging scan'}
-              </button>
-              <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                X-ray, CT, MRI screenshot for vision analysis
-              </div>
-            </div>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>

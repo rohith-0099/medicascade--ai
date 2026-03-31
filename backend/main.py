@@ -73,7 +73,7 @@ async def health_check():
 
 
 @app.post("/api/diagnose")
-async def diagnose(file: UploadFile = File(...), scan: UploadFile = File(None)):
+async def diagnose(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
 
@@ -81,7 +81,7 @@ async def diagnose(file: UploadFile = File(...), scan: UploadFile = File(None)):
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
     upload_path = os.path.join(settings.UPLOAD_DIR, f"{int(start_time)}_{file.filename}")
-    scan_path = None
+
 
     def format_url(path: str) -> str:
         if not path:
@@ -98,16 +98,9 @@ async def diagnose(file: UploadFile = File(...), scan: UploadFile = File(None)):
     try:
         with open(upload_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        if scan:
-            from pathlib import Path
-
-            ext = Path(scan.filename).suffix
-            scan_path = os.path.join(settings.UPLOAD_DIR, f"scan_{int(time.time())}{ext}")
-            with open(scan_path, "wb") as buffer:
-                shutil.copyfileobj(scan.file, buffer)
 
         # Layer 0 — deterministic intake
-        layer0 = layer0_processor.process(upload_path, scan_path)
+        layer0 = layer0_processor.process(upload_path)
 
         # Layer 1 — specialists
         layer1 = layer1_specialists.process(layer0.case)

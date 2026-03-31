@@ -100,7 +100,7 @@ Modern AI in healthcare suffers from the **"Black Box" problem**:
 | **spaCy** | 3.7.4 | NLP — clinical named entity recognition |
 | **Groq SDK** | 1.0.0 | Client for Groq LLM API (LLaMA models) |
 | **ReportLab** | 4.0.9 | Generates the final annotated PDF report |
-| **OpenCV** | 4.9.0 | Image annotation (highlights on scans) |
+
 | **nibabel** | 5.2.1 | Reads NIfTI medical brain images |
 | **scikit-image** | 0.25.0 | Marching cubes for 3D mesh generation |
 | **scipy** | 1.12.0 | Gaussian filtering for mesh smoothing |
@@ -169,7 +169,7 @@ medicascade--ai/
 
 ### Backend — Core Files
 
-#### `backend/main.py` — The API Server (440 lines)
+#### `backend/main.py` — The API Server (~430 lines)
 
 This is the **entry point** of the entire backend. It:
 - Creates a FastAPI application with CORS enabled
@@ -180,9 +180,9 @@ This is the **entry point** of the entire backend. It:
 
 **Main flow in `/api/diagnose`**:
 ```python
-# 1. Accept PDF upload + optional scan image
+# 1. Accept PDF upload
 # 2. Layer 0 → Extract and structure the PDF data
-layer0 = layer0_processor.process(upload_path, scan_path)
+layer0 = layer0_processor.process(upload_path)
 
 # 3. Layer 1 → Run 7 specialist agents in parallel
 layer1 = layer1_specialists.process(layer0.case)
@@ -217,7 +217,7 @@ layer3 = layer3_annotator.process(layer0.case, layer1, layer2)
 - Defines all configurable values: API keys, model names, storage paths, timeouts
 - Creates required directories on import (`uploads/`, `outputs/`, `outputs/cases/`)
 
-#### `backend/schemas.py` — Data Models (198 lines)
+#### `backend/schemas.py` — Data Models (~170 lines)
 
 Defines all **Pydantic data structures** used throughout the pipeline:
 
@@ -341,8 +341,6 @@ This allows Layer 3 to later highlight exactly where in the original PDF each fi
 | `pubmed_client.py` | ~100 | Fetches **real PubMed abstracts** via NIH eUtils API (free, 3 req/sec). Searches by diagnosis term, returns article title, journal, year, PMID, URL, and abstract snippet. Uses in-process caching. |
 | `icd_mapper.py` | ~320 | Local ICD-10-CM lookup table covering ~130 common diagnoses. Performs exact → partial → keyword matching. Maps diagnoses like "Type 2 Diabetes" to "E11.65". |
 | `pdf_annotator.py` | ~520 | ReportLab-based PDF generation engine. Builds the multi-section annotated diagnostic report with tables, color coding, evidence links, and professional formatting. |
-| `critical_annotator.py` | ~420 | Critical value detection and markup. Identifies dangerously abnormal lab values and annotates them with red highlights in the report. |
-| `image_annotator.py` | ~120 | OpenCV-based scan annotation. Draws highlights and circles on medical scan images to visually mark areas of concern. |
 | `hf_client.py` | ~310 | HuggingFace Inference API client. Used to call MedGemma (Google's medical vision model) for image analysis. Optional — only used when HF_API_TOKEN is configured. |
 
 ---
@@ -385,7 +383,7 @@ Converts the segmentation mask into 3D mesh data that can be rendered in the bro
 
 ### Frontend (`frontend/src/`)
 
-#### `frontend/src/App.jsx` — Main Application (30K+ lines)
+#### `frontend/src/App.jsx` — Main Application (~560 lines)
 
 - **Single-page application** with sidebar navigation
 - Two view modes: **Clinical** (PDF diagnosis) and **MRI** (3D brain viewer)
@@ -398,7 +396,7 @@ Converts the segmentation mask into 3D mesh data that can be rendered in the bro
 
 | Component | What It Does |
 |:---|:---|
-| **`UploadSection.jsx`** | Drag-and-drop PDF upload + optional scan image upload. Validates file types. |
+| **`UploadSection.jsx`** | Drag-and-drop PDF upload with file type validation. |
 | **`CascadePipeline.jsx`** | Animated pipeline progress visualization showing each layer processing in sequence with status indicators. |
 | **`LoadingProgress.jsx`** | Rich loading states with animated thinking messages, simulating the pipeline stages. |
 | **`ResultsDashboard.jsx`** | Renders the complete diagnosis results: primary diagnosis with confidence, differential diagnoses, evidence items, specialist views, red flags, abnormal labs, and drug safety information. |
@@ -466,7 +464,7 @@ HF_API_TOKEN=           # Free at huggingface.co (optional, for MedGemma vision)
 
 ### Step 1: User Uploads a Patient PDF
 
-The user opens the web UI at `http://localhost:5173`, drags a patient PDF report onto the upload area, and optionally attaches a scan image (X-Ray, CT, MRI). They click "Analyze."
+The user opens the web UI at `http://localhost:5173`, drags a patient PDF report onto the upload area, and clicks "Generate Report."
 
 ### Step 2: Layer 0 — Document Intake (No AI)
 
@@ -489,7 +487,7 @@ The user opens the web UI at `http://localhost:5173`, drags a patient PDF report
 4. **History agent**: Reads medical history → identifies comorbidities, family history, inherited risks
 5. **Risk agent**: Reads full text → stratifies cardiovascular, metabolic, renal, oncologic risk
 6. **Exposure agent**: Reads full text → identifies occupational/environmental risk factors
-7. **Imaging agent** (if images exist): Sends scan to Groq Vision → radiology findings
+7. **Imaging agent**: If PDF contains embedded images, sends to Groq Vision → radiology findings
 
 Each agent sends its data to a Groq LLM (LLaMA 3.3 70B) with a domain-specific prompt asking for structured JSON output.
 
@@ -694,7 +692,7 @@ Download the nnU-Net model (1.1 GB) from [Zenodo](https://zenodo.org/records/115
 **Key numbers to mention**:
 - 4 pipeline layers
 - 7 specialist AI agents running in parallel
-- 10 API endpoints
+- 10 REST API endpoints
 - 3 external evidence sources (PubMed, FDA, NICE/WHO)
 - ~130 ICD-10-CM diagnoses supported
 - 5 synthetic test cases included
