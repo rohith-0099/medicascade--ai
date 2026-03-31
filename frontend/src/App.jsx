@@ -125,7 +125,14 @@ export default function App() {
 
     try {
       const res = await fetch('/api/diagnose', { method: 'POST', body: form })
-      if (!res.ok) throw new Error(`API error ${res.status}`)
+      if (!res.ok) {
+        let msg = `API error ${res.status}`
+        try {
+          const errData = await res.json()
+          if (errData.detail) msg = errData.detail
+        } catch (_) {}
+        throw new Error(msg)
+      }
       const data = await res.json()
       setResult(data)
       setProgress(100)
