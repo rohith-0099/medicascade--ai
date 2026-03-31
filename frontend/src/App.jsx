@@ -202,6 +202,7 @@ export default function App() {
           </div>
         ))}
 
+{/* 
         <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 14 }}>
           <div className="sidebar-section">Viewers</div>
           <div className="sidebar-item" onClick={() => setViewMode('mri')} style={{ cursor: 'pointer' }}>
@@ -209,6 +210,7 @@ export default function App() {
             <span>3D Brain MRI Viewer</span>
           </div>
         </div>
+        */}
       </aside>
 
       {/* Main Content */}
