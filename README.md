@@ -1,121 +1,109 @@
-# 🏥 MediCascade AI: Universal Medical Diagnosis Engine
-> **"From Black-Box to Glass-Box"** — A multi-agent framework for interpretable, evidence-based medical diagnosis.
+# MediCascade AI
+> "From Black-Box to Glass-Box" - a multi-layer clinical decision support pipeline for transparent, evidence-backed medical AI outputs.
 
-![MediCascade Banner](https://via.placeholder.com/1200x300?text=MediCascade+AI+Banner)
+## Overview
+MediCascade AI processes a patient PDF through four layers:
 
-## 💡 The Problem
-Modern AI in healthcare suffers from the **"Black Box" problem**. Models give a prediction (e.g., "Tumor Detected") but fail to explain *why* or *where*. Doctors cannot trust a number without evidence. Furthermore, single models struggle to correlate multimodal data (text symptoms + visual scans + lab values).
+1. Layer 0 intake extracts structured facts, provenance, and embedded images.
+2. Layer 1 runs 7 specialist agents in parallel.
+3. Layer 2 validates the candidate diagnoses against external evidence.
+4. Layer 3 generates a clinician-facing report with explanations, ICD-10 coding, and safety notes.
 
-## 🚀 The Solution: MediCascade Architecture
-**MediCascade** is a novel **4-Layer Cascade System** that mimics a real-world hospital workflow. Instead of one giant model, we use a team of specialized AI agents that "consult" with each other.
+The goal is not to hide uncertainty. The system now explicitly reports when a capability is unavailable, when deterministic fallbacks were used, and where manual review is still required.
 
+## Layer Breakdown
 
-### 🔬 Detailed Layer Breakdown
+### Layer 0 - Multimodal Intake
+- PDF extraction for notes, labs, vitals, medications, history, and embedded images
+- Provenance tracking for auditable downstream highlights
 
-#### **Layer 0: Multimodal Ingestion**
-- **Smart PDF Extraction**: intelligently distinguishes between text-heavy reports and embedded scanned images (e.g., X-Rays pasted in PDFs).
-- **Scan Enhancement**: Applies CLAHE (Contrast Limited Adaptive Histogram Equalization) to reveal hidden details in medical scans.
+### Layer 1 - Specialist Agents
+The system has 7 specialist agents:
 
-#### **Layer 1: Specialist Agents (The "Doctors")**
-We use a suite of industry-standard models, each fine-tuned for a specific domain:
-*   **Symptom Analyzer** (`ClinicalBERT`): Maps natural language complaints to standardized medical ontology.
-*   **Lab Analyzer** (`BioBERT`): Interprets blood work (CBC, metabolic panels) and flags values outside reference ranges.
-*   **Scan Analyzer** (`TensorFlow Keras CNN`):
-    *   **Model**: Custom trained CNN on Brain MRI datasets (91% Accuracy).
-    *   **Function**: Detects tumors and anomalies in image data.
-*   **Notes Analyzer** (`FLAN-T5`): Extracts clinical entities from unstructured doctor's notes.
+| Agent | Purpose | Runtime / Model |
+| :--- | :--- | :--- |
+| `notes` | Symptom timeline and clinician impressions | Groq text model with OpenRouter/Ollama/deterministic fallback |
+| `labs` | Abnormal lab interpretation and patterns | Groq text model with OpenRouter/Ollama/deterministic fallback |
+| `medication` | Medication extraction, allergies, FDA safety checks | Groq text model + OpenFDA safety enrichment |
+| `history_genetics` | Comorbidities, family history, inherited risk | Groq/OpenRouter/Ollama/deterministic fallback |
+| `risk` | Risk stratification and prognosis | Groq/OpenRouter/Ollama/deterministic fallback |
+| `exposure` | Occupational and environmental exposures | Groq/OpenRouter/Ollama/deterministic fallback |
+| `imaging` | Radiology-style scan review | Requires `HF_API_TOKEN` for actual image analysis. Falls back to text-only mode without it. |
 
-#### **Layer 2: The Validation Council**
-*   **Consensus Voting**: Aggregates opinions from all agents. If the Symptom Agent says "Flu" but the Scan Agent says "Tumor", Layer 2 resolves the conflict based on confidence scores.
-*   **Anomaly Detection**: Flags impossible combinations (e.g., "Male patient" + "Pregnancy positive").
+### Layer 2 - Evidence Validator
+- Consolidates the 7 agent outputs
+- Retrieves lightweight evidence from PubMed, NICE, and WHO
+- Falls back deterministically if external model providers are unavailable
 
-#### **Layer 3: Explainable AI (XAI) & Reporting**
-This is where we solve the "Black Box" problem.
-1.  **Visual XAI (Red Circles)**: We don't just say "Tumor found". We draw **Red Circles** around the exact pixels trigger the detection, and strictly mark **Critical Values** (BP, Heart Rate) in the report.
-2.  **Chain-of-Thought Reasoning**: Uses Generative AI (Llama 3 / Gemini) to write a human-readable explanation: *"We diagnosed X because Finding A + Finding B matches the clinical criteria."*
+### Layer 3 - Explainable Report
+- Annotated PDF report
+- ICD-10 mapping with manual-review disclaimer when unmatched
+- FDA drug safety section when medication warnings are available
 
----
-
-## 🛠️ Technology Stack
+## Technology Stack
 
 | Component | Tech Choices |
 | :--- | :--- |
-| **Backend** | Python 3.12, FastAPI, Uvicorn |
-| **Frontend** | React, Vite, TailwindCSS |
-| **ML/Deep Learning** | TensorFlow, Keras, PyTorch, OpenCV |
-| **NLP Models** | ClinicalBERT, BioBERT, FLAN-T5 |
-| **GenAI / LLM** | Ollama (Llama 3 Local), Google Gemini 1.5 Flash |
-| **Computer Vision** | OpenCV (Hough Transforms, Canny Edge Detection) |
-| **PDF Processing** | ReportLab, PyPDF2, PDFPlumber |
+| Backend | Python 3.10+ (developed and tested on Python 3.12), FastAPI, Uvicorn |
+| Frontend | React, Vite, TailwindCSS |
+| LLM Providers | Groq, OpenRouter, Ollama |
+| Vision Model | Hugging Face MedGemma (`google/medgemma-4b-it`) |
+| PDF / Reporting | PyPDF2, pdfplumber, ReportLab |
+| MRI | nnU-Net v2, nibabel, scikit-image, PyTorch |
 
----
-
-## 📸 Screenshots & Demos
-
-### 1. The Dashboard
-![Dashboard Screenshot](assets/image/dashboard_screenshot.png)
-
-### 2. Visual XAI: Tumor Detection
-The system automatically highlights the tumor region with a **Red Circle** and provides an ML Confidence Score.
-![Tumor Detection Example](assets/image/tumor_detection.png)
-
-### 3. System Architecture
-![MediCascade Architecture](assets/image/architecture_diagram.png)
-
----
-
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
-*   Node.js & npm
-*   Python 3.10+
-*   Ollama (running `llama3`)
+- Node.js and npm
+- Python 3.10+ (developed and tested on Python 3.12)
+- Tesseract OCR (`sudo apt install tesseract-ocr poppler-utils`)
+- Optional: Groq/OpenRouter API keys for online model access
+- Optional: `HF_API_TOKEN` for actual imaging analysis with MedGemma
+- Optional: Ollama for local fallback
 
 ### Installation
+```bash
+git clone https://github.com/your-username/medicascade-ai.git
+cd medicascade-ai
 
-1.  **Clone the repository**
-    ```bash
-    git clone https://github.com/your-username/medicascade-ai.git
-    cd medicascade-ai
-    ```
+cd backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
 
-2.  **Backend Setup**
-    ```bash
-    cd backend
-    python -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-    ```
+cd ../frontend
+npm install
+```
 
-3.  **Frontend Setup**
-    ```bash
-    cd frontend
-    npm install
-    ```
+### Run the App
+```bash
+cd backend
+./venv/bin/uvicorn main:app --reload
+```
 
-### Running the App
+```bash
+cd frontend
+npm run dev
+```
 
-1.  **Start Backend**:
-    ```bash
-    cd backend
-    ./venv/bin/uvicorn main:app --reload
-    ```
+Open `http://localhost:5173`.
 
-2.  **Start Frontend**:
-    ```bash
-    cd frontend
-    npm run dev
-    ```
+## Offline Fallback
+Ollama fallback requires manual installation: https://ollama.ai - run `ollama pull llama3.2` before going offline. Without Ollama, the system uses built-in deterministic heuristics as final fallback and will never return empty results.
 
-3.  Open `http://localhost:5173` and upload a patient file!
+## MRI Performance
+The MRI path uses single-fold inference with mirroring disabled. This is a theoretical ~40x fewer forward passes vs full 5-fold + 8-orientation ensemble. Actual inference time varies by hardware (typically 1-5 minutes on consumer GPU, 5-15 minutes on CPU).
 
----
+## Limitations
+- Local ICD-10 lookup covers ~130 common diagnoses. Uncommon conditions return `Z03.89` (unclassified) and require manual coding.
+- Imaging agent requires `HF_API_TOKEN` for actual vision analysis.
+- Ollama fallback requires manual installation and model download.
+- FDA rate limit is 40 requests/minute; the backend now throttles and retries under parallel load.
+- MRI speedup claims are theoretical; actual time depends on hardware.
+- FHIR export is JSON-formatted and not schema-validated.
 
-## ⚖️ Disclaimer
-*This project is a research prototype designed for the Universal AI Disease Prediction Hackathon. It is NOT a certified medical device and should not be used for actual clinical diagnosis.*
+See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for the concise project limitations list.
 
-# First, kill any existing process on port 8000
-kill -9 $(lsof -t -i:8000)
-
-# Then, run the backend from the /backend directory
-cd backend && ./venv/bin/uvicorn main:app --reload
+## Disclaimer
+This project is a research prototype and not a certified medical device. Always require clinician review before using any output for diagnosis or treatment decisions.

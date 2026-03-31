@@ -15,7 +15,7 @@ MediCascade AI is an **AI-powered clinical decision support system** that proces
 
 Additionally, it includes an **MRI Brain Tumor Segmentation** module that uses deep learning to detect and visualize brain tumors in 3D.
 
-**Key Innovation**: Instead of a single "black-box" AI model, we use a **team of specialized AI agents** (like a panel of doctors) that independently analyze the same patient data and then cross-validate each other's findings — making the system transparent and explainable.
+**Key Innovation**: Instead of a single "black-box" AI model, we use a **team of specialized AI agents** (like a panel of doctors) that independently analyze the same patient data and then cross-validate each other's findings. The system's explainability is **post-hoc and evidence-grounded**: it shows supporting evidence, uncertainty, and provenance rather than relying on SHAP/LIME-style feature attribution.
 
 ---
 
@@ -62,7 +62,7 @@ Modern AI in healthcare suffers from the **"Black Box" problem**:
 │  │   + PubMed abstracts + ICD-10 coding         │   │
 │  │   Output: final_assessment.json              │   │
 │  ├──────────────────────────────────────────────┤   │
-│  │ Layer 3: Report Builder + XAI Narrative       │   │
+│  │ Layer 3: Report Builder + Post-hoc XAI       │   │
 │  │   Groq LLM → doctor-facing explanation       │   │
 │  │   ReportLab → annotated PDF report           │   │
 │  │   Output: MediCascade_Report_{id}.pdf        │   │
@@ -129,11 +129,11 @@ Modern AI in healthcare suffers from the **"Black Box" problem**:
 | History/Genetics | qwen3-32b | Groq | Comorbidities & inherited risk |
 | Risk stratification | llama-3.3-70b-versatile | Groq | Risk scoring |
 | Exposure specialist | llama-3.1-8b-instant | Groq | Environmental risk factors |
-| Imaging specialist | llama-3.3-70b-versatile | Groq | Radiology interpretation (vision) |
+| Imaging specialist | google/medgemma-4b-it | HuggingFace | Radiology / medical image analysis (requires `HF_API_TOKEN`) |
 | Layer 2 validator | llama-3.3-70b-versatile | Groq | Evidence validation (primary) |
 | Layer 2 fallback | meta-llama/llama-3.3-70b | OpenRouter | Validation fallback |
-| XAI narrative | llama-3.3-70b-versatile | Groq | Write doctor-facing explanation |
-| Offline fallback | llama3.2 | Ollama (local) | Works without internet |
+| XAI narrative | llama-3.3-70b-versatile | Groq | Write post-hoc doctor-facing explanation from validated findings |
+| Offline fallback | llama3.2 | Ollama (local) | Works without internet after Ollama setup |
 | Vision model | google/medgemma-4b-it | HuggingFace | Medical image analysis (optional) |
 | MRI segmentation | nnU-Net v2 (BraTS 2021) | Local PyTorch | Brain tumor segmentation |
 
@@ -226,7 +226,7 @@ Defines all **Pydantic data structures** used throughout the pipeline:
 - **`SpecialistView`** — Single specialist agent's output (agent name, role, model, confidence, findings)
 - **`Layer1Findings`** — Combined output of all specialists (candidate diagnoses, red flags, abnormal labs, symptom timeline, risk factors)
 - **`FinalAssessment`** — Layer 2 output (primary diagnosis, confidence, supported/uncertain/contradicted findings, evidence pack, highlight targets)
-- **`AnnotatedReport`** — Layer 3 output (PDF path, XAI explanation text, evidence items)
+- **`AnnotatedReport`** — Layer 3 output (PDF path, post-hoc XAI explanation text, evidence items)
 - **`MriAnalyzeResponse`** — MRI segmentation output (meshes, stats, volume shape)
 
 #### `backend/database.py` — SQLite Database (158 lines)
@@ -273,7 +273,7 @@ This allows Layer 3 to later highlight exactly where in the original PDF each fi
 | `history_genetics` | Comorbidities + inherited risk | Medical history, family history |
 | `risk` | Risk stratification | Overall risk profile (cardiovascular, metabolic, renal, oncologic) |
 | `exposure` | Environmental/occupational risks | Work/environment exposures |
-| `imaging` | Radiology interpretation | Medical scan images (if provided) |
+| `imaging` | Radiology interpretation | Medical scan images (if provided, with MedGemma when `HF_API_TOKEN` is configured) |
 
 **How it works**:
 1. All agents run **in parallel** using Python's `ThreadPoolExecutor` (faster than sequential)
@@ -283,32 +283,34 @@ This allows Layer 3 to later highlight exactly where in the original PDF each fi
 5. Results are aggregated into `Layer1Findings` with: candidate diagnoses, red flags, abnormal labs, symptom timeline, risk factors
 6. Saved as `layer1_findings.json`
 
-**Fallback strategy**: Groq API → Ollama local LLM → deterministic heuristics (always works, even offline)
+**Fallback strategy**: Groq API → OpenRouter → Ollama local LLM (if installed) → deterministic heuristics
 
 #### `backend/layers/layer2_validator.py` — Layer 2: Evidence Validation (699 lines)
 
-**What it does**: Acts as a "truth checker." Takes the specialist findings and validates them against external evidence sources.
+**What it does**: Acts as a "truth checker." Takes the specialist findings and validates them against external evidence sources and deterministic safety rules.
 
 **How it works**:
 1. **Evidence retrieval**: For the top candidate diagnoses, it:
    - Fetches **real PubMed abstracts** via NIH eUtils (free API, ~3 req/sec)
    - Generates links to **NICE** (UK clinical guidelines) and **WHO** publications
-2. **Validator LLM call**: Sends the case facts + Layer 1 findings + retrieved evidence to an LLM, asking it to classify each finding as:
+2. **Validator LLM call**: Sends the case facts + Layer 1 findings + retrieved evidence to an LLM, asking it to classify the proposed findings as:
    - ✅ **Supported** — evidence confirms this finding
    - ❓ **Uncertain** — not enough evidence
    - ❌ **Contradicted** — evidence disagrees
-3. **Deterministic safety guards**: Even if the LLM fails, rule-based logic checks critical lab values (HbA1c ≥ 10%, troponin > 0.04, eGFR < 60, etc.) and ensures they're always flagged
+3. **Deterministic safety guards**: Even if the LLM fails, rule-based logic checks critical lab values (HbA1c ≥ 10%, troponin > 0.04, eGFR < 60, etc.), preserves important abnormalities, and keeps provenance-linked highlights
 4. **ICD-10 coding**: Maps the diagnosis to a standard ICD-10-CM code
 5. Saved as `final_assessment.json`
 
 **Fallback chain**: Groq LLM → OpenRouter free model → deterministic heuristics
 
+**Important academic point**: Layer 2 is not a formal verifier of every raw sentence generated in Layer 1. It validates a compact structured summary of Layer 1 hypotheses against patient facts, retrieved literature, and deterministic clinical rules, then produces the validated assessment used by the final report.
+
 #### `backend/layers/layer3_annotator.py` — Layer 3: Report Generation (360 lines)
 
-**What it does**: Generates the final doctor-facing PDF report with XAI (Explainable AI) narrative.
+**What it does**: Generates the final doctor-facing PDF report with a **post-hoc, evidence-grounded XAI narrative**.
 
 **How it works**:
-1. **XAI Narrative**: Sends the final assessment to Groq LLM, asking it to write a structured explanation:
+1. **Post-hoc XAI Narrative**: Sends the final assessment to Groq LLM, asking it to write a structured explanation:
    - Clinical summary
    - Why the primary diagnosis is most likely
    - Differential reasoning
@@ -324,10 +326,12 @@ This allows Layer 3 to later highlight exactly where in the original PDF each fi
    - FDA drug safety warnings
    - Evidence links (PubMed, NICE, WHO)
    - Layer 1 and Layer 2 findings
-   - XAI reasoning narrative
+   - Post-hoc XAI reasoning narrative
    - Critical value highlights (linked back to source PDF pages)
    - Data flow trace showing the full pipeline
 3. Saved as `MediCascade_Report_{case_id}.pdf`
+
+**Why this is still XAI without SHAP/LIME**: This project is not a single tabular prediction model, so it does not use feature-attribution methods like SHAP or LIME. Instead, explainability is provided through evidence grounding, uncertainty labeling, provenance tracing back to the source PDF, and explicit disclosure of missing data and next clinical steps. The academically accurate description is: **post-hoc explainable AI with evidence grounding and provenance tracing**.
 
 ---
 
@@ -487,7 +491,7 @@ The user opens the web UI at `http://localhost:5173`, drags a patient PDF report
 4. **History agent**: Reads medical history → identifies comorbidities, family history, inherited risks
 5. **Risk agent**: Reads full text → stratifies cardiovascular, metabolic, renal, oncologic risk
 6. **Exposure agent**: Reads full text → identifies occupational/environmental risk factors
-7. **Imaging agent**: If PDF contains embedded images, sends to Groq Vision → radiology findings
+7. **Imaging agent**: If the PDF contains embedded images and `HF_API_TOKEN` is configured, sends them to MedGemma for vision analysis; otherwise it explicitly reports that no vision-capable model is configured
 
 Each agent sends its data to a Groq LLM (LLaMA 3.3 70B) with a domain-specific prompt asking for structured JSON output.
 
@@ -510,7 +514,7 @@ Results are merged into the **Layer 1 contract**: candidate diagnoses (ranked by
 
 ### Step 5: Layer 3 — Report Generation (AI + ReportLab)
 
-1. Sends the final assessment to Groq LLM for a structured **XAI narrative** (7 sections: clinical summary, diagnosis reasoning, differentials, red flags, evidence, uncertainty, next steps)
+1. Sends the final assessment to Groq LLM for a structured **post-hoc XAI narrative** (7 sections: clinical summary, diagnosis reasoning, differentials, red flags, evidence, uncertainty, next steps)
 2. Collects FDA drug safety warnings from the medication specialist
 3. Uses **ReportLab** to generate a professional annotated PDF:
    - Patient demographics and vitals
@@ -519,7 +523,7 @@ Results are merged into the **Layer 1 contract**: candidate diagnoses (ranked by
    - Differential diagnoses with reasoning
    - FDA drug safety warnings
    - Evidence links (PubMed articles with real abstracts)
-   - XAI explanation narrative
+   - Post-hoc XAI explanation narrative
    - Critical value highlights traced to source PDF pages
    - Complete data flow trace
 
@@ -625,7 +629,7 @@ CREATE TABLE audit_log (
 
 5. **Real evidence, not hallucinations** — Layer 2 fetches actual PubMed abstracts (not generated text) and real FDA drug warnings. Evidence is traceable and verifiable.
 
-6. **XAI (Explainable AI)** — Layer 3 generates a structured explanation of why the diagnosis was chosen, what evidence supports it, and what's uncertain. Solves the "black box" problem.
+6. **Post-hoc XAI (Explainable AI)** — Layer 3 generates a structured explanation of why the diagnosis was chosen, what evidence supports it, what remains uncertain, and where the supporting data came from. This is evidence-grounded explainability, not SHAP/LIME feature attribution.
 
 7. **ICD-10 coding** — Maps diagnoses to international standard medical codes, enabling integration with EHR (Electronic Health Record) systems.
 
@@ -633,14 +637,14 @@ CREATE TABLE audit_log (
 
 9. **No external database** — SQLite requires zero setup. Good for a research prototype/hackathon.
 
-10. **Consumer GPU optimization** — The MRI model uses single-fold inference and no mirroring, giving a 40× speedup to run on a laptop GPU.
+10. **Consumer GPU optimization** — The MRI model uses single-fold inference and no mirroring, giving theoretical ~40x fewer forward passes than a full ensemble. Actual runtime depends on hardware.
 
 ---
 
 ## 10. How to Run the Project
 
 ### Prerequisites
-- Python 3.10+
+- Python 3.10+ (developed and tested on Python 3.12)
 - Node.js & npm
 - Tesseract OCR (`sudo apt install tesseract-ocr poppler-utils`)
 - A Groq API key (free at [console.groq.com](https://console.groq.com))
@@ -687,7 +691,12 @@ Download the nnU-Net model (1.1 GB) from [Zenodo](https://zenodo.org/records/115
 
 ## 12. Quick Summary for Presentation
 
-> **One-liner**: MediCascade AI is a multi-agent clinical decision support system that processes patient PDFs through 4 AI layers (intake → specialist consultation → evidence validation → report generation) to produce transparent, evidence-based diagnostic reports with real PubMed citations, ICD-10 codes, and FDA drug safety checks — solving the "black box" problem in medical AI.
+> **One-liner**: MediCascade AI is a multi-agent clinical decision support system that processes patient PDFs through 4 AI layers (intake → specialist consultation → evidence validation → report generation) to produce transparent, evidence-based diagnostic reports with real PubMed citations, ICD-10 codes, FDA drug safety checks, and post-hoc explainable reasoning traces.
+
+**Academically safe wording for faculty**:
+- MediCascade AI uses **post-hoc explainable AI**
+- The explainability comes from **evidence grounding, uncertainty labeling, and provenance tracing**
+- It does **not** use SHAP/LIME-style feature attribution, because this project is a multi-agent reasoning pipeline rather than a single predictive model
 
 **Key numbers to mention**:
 - 4 pipeline layers
@@ -697,4 +706,4 @@ Download the nnU-Net model (1.1 GB) from [Zenodo](https://zenodo.org/records/115
 - ~130 ICD-10-CM diagnoses supported
 - 5 synthetic test cases included
 - 100% free-tier APIs
-- Works offline with Ollama fallback
+- Works offline with Ollama fallback (requires Ollama setup)

@@ -13,6 +13,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+BACKEND_DIR="$PROJECT_ROOT/backend"
+FRONTEND_DIR="$PROJECT_ROOT/frontend"
 
 # Step 1: Check System Dependencies
 echo -e "${YELLOW}[1/7] Checking system dependencies...${NC}"
@@ -33,7 +36,13 @@ fi
 
 # Step 2: Setup Python Backend
 echo -e "\n${YELLOW}[2/7] Setting up Python backend...${NC}"
-cd /home/rohith/medicascade-ai/backend
+if python3 --version | grep -qE "3\.(10|11|12|13)"; then
+    echo "✓ Python version OK"
+else
+    echo "✗ Python 3.10+ required"
+    exit 1
+fi
+cd "$BACKEND_DIR"
 pip install -r requirements.txt
 echo -e "${GREEN}✓ Python dependencies installed${NC}"
 
@@ -48,10 +57,10 @@ fi
 
 # Step 4: Setup Environment
 echo -e "\n${YELLOW}[4/7] Setting up environment...${NC}"
-cd /home/rohith/medicascade-ai
+cd "$BACKEND_DIR"
 if [ ! -f .env ]; then
     cp .env.example .env
-    echo -e "${YELLOW}⚠ Please add your HuggingFace token to .env${NC}"
+    echo -e "${YELLOW}⚠ Please add your HuggingFace token to backend/.env${NC}"
     echo "   Get it from: https://huggingface.co/settings/tokens"
 else
     echo -e "${GREEN}✓ .env file exists${NC}"
@@ -59,13 +68,13 @@ fi
 
 # Step 5: Setup Frontend
 echo -e "\n${YELLOW}[5/7] Setting up frontend...${NC}"
-cd /home/rohith/medicascade-ai/frontend
+cd "$FRONTEND_DIR"
 npm install
 echo -e "${GREEN}✓ Frontend dependencies installed${NC}"
 
 # Step 6: Create Sample PDF
 echo -e "\n${YELLOW}[6/7] Creating sample patient PDF...${NC}"
-cd /home/rohith/medicascade-ai
+cd "$PROJECT_ROOT"
 python demo/create_sample_pdf.py
 echo -e "${GREEN}✓ Sample PDF created${NC}"
 
@@ -86,16 +95,16 @@ echo "1. Start Ollama (if not running):"
 echo "   ollama serve"
 echo ""
 echo "2. Start Backend (in one terminal):"
-echo "   cd /home/rohith/medicascade-ai/backend"
+echo "   cd $BACKEND_DIR"
 echo "   python main.py"
 echo ""
 echo "3. Start Frontend (in another terminal):"
-echo "   cd /home/rohith/medicascade-ai/frontend"
+echo "   cd $FRONTEND_DIR"
 echo "   npm run dev"
 echo ""
 echo "4. Open browser:"
 echo "   http://localhost:5173"
 echo ""
 echo -e "${YELLOW}Sample PDF for testing:${NC}"
-echo "   /home/rohith/medicascade-ai/demo/sample_patient.pdf"
+echo "   $PROJECT_ROOT/demo/sample_patient.pdf"
 echo ""

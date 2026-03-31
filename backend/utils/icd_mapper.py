@@ -3,8 +3,9 @@ ICD-10-CM code mapper for common diagnoses.
 Uses a local lookup table — no external API or API key required.
 Performs exact → partial → keyword fuzzy matching.
 """
+from difflib import SequenceMatcher
 import re
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 # (ICD-10-CM code, official description)
 _ICD10: dict = {
@@ -137,47 +138,124 @@ _ICD10: dict = {
 }
 
 
-def get_icd10_code(diagnosis: str) -> Tuple[str, str]:
-    """
-    Map a free-text diagnosis to an ICD-10-CM code.
+def _normalize(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").lower().strip(" ."))
 
-    Returns (code, description).
-    Falls back to R69 (Illness, unspecified) when no match found.
-    """
-    if not diagnosis:
-        return ("R69", "Illness, unspecified")
 
-    lower = re.sub(r"\s+", " ", diagnosis.lower().strip(" ."))
+def _build_result(
+    diagnosis: str,
+    code: str,
+    description: str,
+    matched: bool,
+    match_type: str,
+    score: float,
+    matched_term: str = "",
+) -> Dict[str, Any]:
+    return {
+        "diagnosis": diagnosis,
+        "icd10_code": code,
+        "icd10_description": description,
+        "matched": matched,
+        "match_type": match_type,
+        "score": round(float(score), 2),
+        "matched_term": matched_term,
+    }
 
-    # 1. Exact match
+
+def _unmatched_result(diagnosis: str) -> Dict[str, Any]:
+    clean_diagnosis = diagnosis.strip() if diagnosis else "Undetermined diagnosis"
+    return {
+        "diagnosis": clean_diagnosis,
+        "icd10_code": "Z03.89",
+        "icd10_description": f"Unclassified: {clean_diagnosis}",
+        "match_type": "unmatched",
+        "warning": "Diagnosis not found in local ICD-10 lookup. Manual coding required.",
+        "matched": False,
+        "score": 0.0,
+        "matched_term": "",
+    }
+
+
+def _local_lookup(diagnosis: str) -> Dict[str, Any]:
+    lower = _normalize(diagnosis)
+    if not lower:
+        return {"matched": False, "score": 0.0}
+
     if lower in _ICD10:
-        return _ICD10[lower]
+        code, desc = _ICD10[lower]
+        return _build_result(diagnosis, code, desc, True, "exact", 1.0, lower)
 
-    # 2. Partial match: diagnosis key is a substring of input (or vice-versa)
-    #    Pick the longest matching key for specificity.
     candidates = [
         (k, v) for k, v in _ICD10.items()
         if k in lower or lower in k
     ]
     if candidates:
-        return max(candidates, key=lambda x: len(x[0]))[1]
+        key, value = max(candidates, key=lambda x: len(x[0]))
+        code, desc = value
+        return _build_result(diagnosis, code, desc, True, "partial", 0.92, key)
 
-    # 3. Keyword match: any word > 4 chars in the lookup key appears in input
     kw_candidates = []
     for k, v in _ICD10.items():
         words = [w for w in k.split() if len(w) > 4]
         if words and all(w in lower for w in words):
             kw_candidates.append((k, v))
     if kw_candidates:
-        return max(kw_candidates, key=lambda x: len(x[0]))[1]
+        key, value = max(kw_candidates, key=lambda x: len(x[0]))
+        code, desc = value
+        return _build_result(diagnosis, code, desc, True, "keyword", 0.86, key)
 
-    # 4. Single keyword: at least one meaningful word matches
     for k, v in _ICD10.items():
         words = [w for w in k.split() if len(w) > 5]
         if words and any(w in lower for w in words):
-            return v
+            code, desc = v
+            return _build_result(diagnosis, code, desc, True, "keyword", 0.78, k)
 
-    return ("R69", "Illness, unspecified")
+    return {"matched": False, "score": 0.0}
+
+
+def _fuzzy_match(diagnosis: str) -> Dict[str, Any]:
+    lower = _normalize(diagnosis)
+    if not lower:
+        return {"matched": False, "score": 0.0}
+
+    best_key = ""
+    best_score = 0.0
+    for key in _ICD10:
+        score = SequenceMatcher(None, lower, key).ratio()
+        if score > best_score:
+            best_key = key
+            best_score = score
+
+    if not best_key:
+        return {"matched": False, "score": 0.0}
+
+    code, desc = _ICD10[best_key]
+    return _build_result(diagnosis, code, desc, True, "fuzzy", best_score, best_key)
+
+
+def map_to_icd10(diagnosis: str) -> Dict[str, Any]:
+    """
+    Map a free-text diagnosis to ICD-10-CM with explicit match quality metadata.
+
+    Falls back to Z03.89 when the local lookup cannot classify the diagnosis.
+    """
+    result = _local_lookup(diagnosis)
+    if result.get("matched"):
+        return result
+
+    fuzzy = _fuzzy_match(diagnosis)
+    if fuzzy.get("score", 0.0) > 0.75:
+        return {**fuzzy, "match_type": "fuzzy"}
+
+    return _unmatched_result(diagnosis)
+
+
+def get_icd10_code(diagnosis: str) -> Tuple[str, str]:
+    """
+    Compatibility wrapper returning only (code, description).
+    """
+    result = map_to_icd10(diagnosis)
+    return result["icd10_code"], result["icd10_description"]
 
 
 def get_icd10_for_differential(differentials: list) -> list:
@@ -186,8 +264,16 @@ def get_icd10_for_differential(differentials: list) -> list:
     for d in differentials:
         if isinstance(d, dict):
             diag = d.get("diagnosis", "")
-            code, desc = get_icd10_code(diag)
-            enriched.append({**d, "icd10_code": code, "icd10_description": desc})
+            mapping = map_to_icd10(diag)
+            enriched.append(
+                {
+                    **d,
+                    "icd10_code": mapping["icd10_code"],
+                    "icd10_description": mapping["icd10_description"],
+                    "match_type": mapping.get("match_type", ""),
+                    "warning": mapping.get("warning", ""),
+                }
+            )
         else:
             enriched.append(d)
     return enriched

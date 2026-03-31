@@ -178,36 +178,57 @@ export default function App() {
             <div className="sidebar-subtitle">v2.0 · Clinical Intelligence</div>
           </div>
         </div>
+        <hr className="sidebar-divider" />
+        <div className="sidebar-section" style={{ marginBottom: 12 }}>4-Layer Pipeline</div>
+        {PIPELINE.map((p, i) => {
+          let isActive = false
+          let isPast = false
+          if (loading) {
+            if (i === 0 && stageIndex < 3) isActive = true
+            else if (i === 1 && stageIndex >= 3 && stageIndex < 8) isActive = true
+            else if (i === 2 && stageIndex >= 8 && stageIndex < 11) isActive = true
+            else if (i === 3 && stageIndex >= 11) isActive = true
+            
+            if (i === 0 && stageIndex >= 3) isPast = true
+            if (i === 1 && stageIndex >= 8) isPast = true
+            if (i === 2 && stageIndex >= 11) isPast = true
+          } else if (result) {
+            isPast = true
+          } else {
+            if (i === 0) isActive = true
+          }
 
-        <div className="sidebar-section">4-Layer Pipeline</div>
-        {PIPELINE.map((p, i) => (
-          <div
-            key={p.id}
-            style={{
-              marginBottom: 6,
-              border: '1px solid var(--border)',
-              borderRadius: 10,
-              padding: '9px 12px',
-              background: 'rgba(0,212,255,0.02)',
-              transition: 'border-color 0.2s',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{
-                fontFamily: 'monospace',
-                fontSize: 10,
-                fontWeight: 800,
-                color: i === 0 ? '#8bafc9' : i === 1 ? 'var(--accent)' : i === 2 ? 'var(--purple-light)' : 'var(--success)',
-                background: 'rgba(255,255,255,0.05)',
-                padding: '2px 6px',
-                borderRadius: 4,
-                letterSpacing: '0.05em',
-              }}>{p.label}</span>
-              <span style={{ color: 'var(--text-primary)', fontSize: 12, fontWeight: 700 }}>{p.title}</span>
+          const highlight = isActive ? 'var(--accent)' : isPast ? 'var(--text-secondary)' : 'var(--text-muted)'
+          const bgColor = isActive ? 'rgba(0,188,212,0.05)' : 'transparent'
+          const leftBorderColor = isActive ? 'var(--accent)' : 'transparent'
+
+          return (
+            <div
+              key={p.id}
+              style={{
+                marginBottom: 2,
+                borderLeft: `3px solid ${leftBorderColor}`,
+                padding: '10px 12px 10px 9px',
+                background: bgColor,
+                transition: 'all 0.2s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: highlight,
+                  background: isActive ? 'rgba(0,188,212,0.1)' : 'rgba(255,255,255,0.05)',
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                }}>{p.id + 1}</span>
+                <span style={{ color: isActive || isPast ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: 13, fontWeight: isActive ? 600 : 500 }}>{p.title}</span>
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 4, paddingLeft: 34 }}>{p.detail}</div>
             </div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 3, paddingLeft: 4 }}>{p.detail}</div>
-          </div>
-        ))}
+          )
+        })}
 
 {/* 
         <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 14 }}>
@@ -226,9 +247,9 @@ export default function App() {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
           <div>
-            <h1 className="page-title" style={{ fontSize: 24, marginBottom: 4 }}>Clinical Decision Intelligence</h1>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-              Multi-model cascade · Real-time XAI · Evidence-validated diagnostics
+            <h1 className="page-title" style={{ fontSize: 24, marginBottom: 4, color: '#e2e8f0', background: 'none', WebkitTextFillColor: 'initial', fontWeight: 600 }}>Clinical Decision Support</h1>
+            <p className="mono" style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+              4-layer cascade · XAI · Evidence-validated
             </p>
           </div>
           {result && (
@@ -253,33 +274,47 @@ export default function App() {
           <div>
             {/* PDF Drop Zone */}
             <div
+              className={`upload-zone ${file ? 'has-file' : ''}`}
               onClick={() => pdfRef.current?.click()}
-              onDragOver={(e) => e.preventDefault()}
+              onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('drag-over') }}
+              onDragLeave={(e) => { e.currentTarget.classList.remove('drag-over') }}
               onDrop={(e) => {
                 e.preventDefault()
+                e.currentTarget.classList.remove('drag-over')
                 const f = e.dataTransfer.files?.[0]
                 if (f?.type === 'application/pdf') setFile(f)
               }}
-              style={{
-                border: `1.5px dashed ${file ? 'var(--accent)' : 'var(--border-strong)'}`,
-                borderRadius: 12,
-                padding: '20px 22px',
-                cursor: 'pointer',
-                background: file ? 'rgba(0,212,255,0.05)' : 'rgba(0,212,255,0.02)',
-                transition: 'all 0.2s',
-                boxShadow: file ? '0 0 20px rgba(0,212,255,0.08)' : 'none',
-              }}
             >
               <input ref={pdfRef} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={(e) => setFile(e.target.files?.[0] || null)} />
-              <div style={{ fontSize: 24, marginBottom: 8 }}>{file ? '📄' : '⬆'}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'monospace' }}>Patient Document (PDF)</div>
-              <div style={{ color: file ? 'var(--accent)' : 'var(--text-primary)', marginTop: 6, fontWeight: 700, fontSize: 15 }}>
-                {file ? file.name : 'Click or drag & drop hospital record'}
+              
+              <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="16" y1="13" x2="8" y2="13"></line>
+                  <line x1="16" y1="17" x2="8" y2="17"></line>
+                  <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
               </div>
-              {file && (
-                <div style={{ color: 'var(--text-muted)', marginTop: 6, fontSize: 11, fontFamily: 'monospace' }}>
-                  {pdfPages} page{pdfPages !== 1 ? 's' : ''} detected · {(file.size / 1024).toFixed(0)} KB
-                </div>
+
+              {!file ? (
+                <>
+                  <div style={{ color: '#94a3b8', fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
+                    Drop patient PDF here
+                  </div>
+                  <div style={{ color: '#475569', fontSize: 12 }}>
+                    Supports text-based and scanned PDFs
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ color: 'var(--accent)', fontWeight: 600, fontSize: 15 }}>
+                    {file.name}
+                  </div>
+                  <div className="mono" style={{ color: 'var(--text-muted)', marginTop: 6, fontSize: 11 }}>
+                    {pdfPages} page{pdfPages !== 1 ? 's' : ''} detected · {(file.size / 1024).toFixed(0)} KB
+                  </div>
+                </>
               )}
             </div>
 
@@ -415,6 +450,23 @@ export default function App() {
                 </div>
               ))}
             </div>
+
+            {result.fallback_used && (
+              <div style={{
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                borderRadius: 12,
+                padding: '12px 16px',
+                background: 'rgba(245, 158, 11, 0.08)',
+                color: 'var(--text-primary)',
+              }}>
+                <div style={{ color: 'var(--warning)', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', fontFamily: 'monospace', marginBottom: 6 }}>
+                  Fallback Used
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                  {result.fallback_reason || 'A non-primary provider or deterministic heuristic fallback was used for part of this analysis.'}
+                </div>
+              </div>
+            )}
 
             {/* ICD-10 + drug safety row */}
             {(result.icd10_code || result.drug_safety?.warnings?.length) && (

@@ -1,4 +1,5 @@
 import os
+import subprocess
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict
 
@@ -33,7 +34,7 @@ class Settings(BaseSettings):
     OUTPUT_DIR: str = "outputs"
     CASE_DIR: str = "outputs/cases"
 
-    # ── Ollama local fallback (completely offline) ───────────────────────────
+    # ── Ollama local fallback (requires manual Ollama setup) ─────────────────
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2"
 
@@ -50,6 +51,20 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+
+def check_ollama_available() -> bool:
+    """Check whether the Ollama CLI is installed and responsive."""
+    try:
+        result = subprocess.run(
+            ["ollama", "list"],
+            capture_output=True,
+            timeout=3,
+            check=False,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, TimeoutError, subprocess.TimeoutExpired):
+        return False
 
 
 settings = Settings()

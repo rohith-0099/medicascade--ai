@@ -57,6 +57,10 @@ class SpecialistView(BaseModel):
     role: str            # human-readable description
     model: str
     confidence: float = Field(ge=0.0, le=1.0)
+    status: str = "completed"
+    reason: Optional[str] = None
+    fallback_used: bool = False
+    fallback_reason: Optional[str] = None
     findings: Dict[str, Any] = Field(default_factory=dict)
     evidence: List[Provenance] = Field(default_factory=list)
 
@@ -123,6 +127,8 @@ class MriAnalyzeResponse(BaseModel):
     meshes: Dict[str, Optional[MriPlotlyMesh]] = Field(default_factory=dict)
     stats: Dict[str, MriTumorStat] = Field(default_factory=dict)
     processing_time: float = 0.0
+    inference_time_seconds: float = 0.0
+    performance_note: str = ""
     volume_shape: List[int] = Field(default_factory=list)
     voxel_spacing: List[float] = Field(default_factory=list)
 

@@ -11,7 +11,7 @@ from schemas import (
     Layer1Findings,
 )
 from utils.pdf_annotator import pdf_annotator
-from utils.icd_mapper import get_icd10_code, get_icd10_for_differential
+from utils.icd_mapper import get_icd10_for_differential, map_to_icd10
 
 try:
     from groq import Groq
@@ -37,7 +37,9 @@ class Layer3Annotator:
         evidence_items = self._build_evidence(final)
 
         # ICD-10 coding for primary diagnosis and differentials
-        icd_code, icd_desc = get_icd10_code(final.primary_diagnosis or "")
+        icd_result = map_to_icd10(final.primary_diagnosis or "")
+        icd_code = icd_result["icd10_code"]
+        icd_desc = icd_result["icd10_description"]
         enriched_differentials = get_icd10_for_differential(final.final_differentials)
 
         # Collect FDA drug safety warnings from medication specialist
@@ -58,6 +60,8 @@ class Layer3Annotator:
         # Attach ICD code and drug safety to the report metadata
         self._icd_code = icd_code
         self._icd_desc = icd_desc
+        self._icd_match_type = icd_result.get("match_type", "")
+        self._icd_warning = icd_result.get("warning", "")
         self._drug_safety = drug_safety
 
         pdf_path = self._build_pdf(case, layer1, final, final_dx, explanation, evidence_items)
@@ -73,6 +77,8 @@ class Layer3Annotator:
                 "red_flags": final.final_red_flags,
                 "icd10_code": icd_code,
                 "icd10_description": icd_desc,
+                "icd10_match_type": icd_result.get("match_type", ""),
+                "icd10_warning": icd_result.get("warning", ""),
                 "drug_safety": drug_safety,
             },
         )
@@ -302,6 +308,8 @@ class Layer3Annotator:
             "confidence": dx.confidence,
             "icd10_code": getattr(self, "_icd_code", "R69"),
             "icd10_description": getattr(self, "_icd_desc", "Illness, unspecified"),
+            "icd10_match_type": getattr(self, "_icd_match_type", ""),
+            "icd10_warning": getattr(self, "_icd_warning", ""),
             "secondary_diagnoses": dx.secondary_diagnoses,
             "drug_safety": drug_safety,
             "evidence_links": [

@@ -110,7 +110,7 @@ Static files under `outputs/` are served by FastAPI's `StaticFiles` mount at `/o
 
 - `pubmed_client.py` — Real PubMed abstract fetching via NIH eUtils (free, no key). Used by Layer 2 to replace placeholder links with genuine evidence snippets. In-process cache prevents duplicate NIH calls.
 - `drug_checker.py` — FDA OpenFDA drug label lookup (free, no key). Called by the Layer 1 medication agent to add boxed warnings, interactions, and contraindications from the FDA database.
-- `icd_mapper.py` — Local ICD-10-CM lookup table covering ~100 common diagnoses. Performs exact → partial → keyword matching. Used in Layer 3 and `/api/diagnose` response.
+- `icd_mapper.py` — Local ICD-10-CM lookup table covering ~130 common diagnoses. Performs exact → partial → keyword/fuzzy matching, with `Z03.89` returned for unmatched diagnoses that require manual review. Used in Layer 3 and `/api/diagnose` response.
 
 ### Database (`backend/database.py`)
 

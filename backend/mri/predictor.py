@@ -9,9 +9,10 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 import zipfile
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -61,7 +62,7 @@ class BraTSPredictor:
         )
         logger.info("nnU-Net BraTS predictor ready")
 
-    def predict(
+    def _run_inference(
         self,
         t1: np.ndarray,
         t1ce: np.ndarray,
@@ -103,8 +104,27 @@ class BraTSPredictor:
             save_or_return_probabilities=False,
         )
         logger.info(f"Segmentation complete. Unique labels: {np.unique(seg)}")
-
         return seg.astype(np.int32)
+
+    def predict(
+        self,
+        t1: np.ndarray,
+        t1ce: np.ndarray,
+        t2: np.ndarray,
+        flair: np.ndarray,
+        spacing: Tuple[float, float, float],
+    ) -> Dict[str, Any]:
+        start = time.time()
+        segmentation = self._run_inference(t1, t1ce, t2, flair, spacing)
+        elapsed = time.time() - start
+        return {
+            "segmentation": segmentation,
+            "inference_time_seconds": round(elapsed, 2),
+            "performance_note": (
+                "Single-fold inference with mirroring disabled. "
+                f"Completed in {elapsed:.1f}s on this hardware."
+            ),
+        }
 
 
 def get_predictor() -> BraTSPredictor:

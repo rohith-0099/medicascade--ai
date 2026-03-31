@@ -10,10 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import settings
+from config import check_ollama_available, settings
 from database import init_db, save_case, get_case_history, get_case, save_feedback, get_stats
+from utils.drug_checker import get_fda_rate_limit_remaining
 from utils.medical_screener import screen_medical_document
-from utils.icd_mapper import get_icd10_code
+from utils.icd_mapper import map_to_icd10
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +46,18 @@ if os.path.exists(settings.OUTPUT_DIR):
 init_db()
 
 
+def _summarize_fallback_status(layer1, layer2) -> tuple[bool, str]:
+    reasons = []
+    for view in getattr(layer1, "views", []):
+        if getattr(view, "fallback_used", False):
+            reasons.append(view.fallback_reason or f"{view.agent} used a non-primary model fallback")
+    if "Heuristic fallback" in getattr(layer2, "decision_log", ""):
+        reasons.append("Layer 2 validator used deterministic fallback.")
+
+    deduped = list(dict.fromkeys([reason for reason in reasons if reason]))
+    return bool(deduped), "; ".join(deduped[:3])
+
+
 
 
 @app.get("/")
@@ -60,6 +73,10 @@ async def root():
 async def health_check():
     return {
         "status": "healthy",
+        "ollama_available": check_ollama_available(),
+        "fda_rate_limit_remaining": get_fda_rate_limit_remaining(),
+        "imaging_vision_enabled": bool(settings.HF_API_TOKEN.strip()),
+        "icd10_coverage": "130 common diagnoses",
         "models": {
             "validator": settings.OPENROUTER_VALIDATOR_MODEL,
             "text_specialist": settings.GROQ_MODEL,
@@ -134,7 +151,10 @@ async def diagnose(file: UploadFile = File(...)):
         total_elapsed = time.time() - start_time
 
         # ICD-10 coding for structured reporting
-        icd_code, icd_desc = get_icd10_code(layer2.primary_diagnosis or "")
+        icd_mapping = map_to_icd10(layer2.primary_diagnosis or "")
+        icd_code = icd_mapping["icd10_code"]
+        icd_desc = icd_mapping["icd10_description"]
+        fallback_used, fallback_reason = _summarize_fallback_status(layer1, layer2)
 
         # Persist case to SQLite for history / longitudinal tracking
         drug_safety = layer3.visualization_data.get("drug_safety", {}) if layer3.visualization_data else {}
@@ -164,6 +184,8 @@ async def diagnose(file: UploadFile = File(...)):
             "processing_time": total_elapsed,
             "evidence_items_count": len(layer2.evidence_pack),
             "specialist_views_count": len(layer1.views),
+            "fallback_used": fallback_used,
+            "fallback_reason": fallback_reason or None,
             "xai_summary": (layer3.explanation_text or "")[:4000],
             "artifacts": {
                 "case_json": format_url(layer0.case_json_path),
@@ -221,6 +243,10 @@ async def diagnose(file: UploadFile = File(...)):
                     "agent": v.agent,
                     "role": v.role,
                     "confidence": v.confidence,
+                    "status": v.status,
+                    "reason": v.reason,
+                    "fallback_used": v.fallback_used,
+                    "fallback_reason": v.fallback_reason,
                     "findings": v.findings,
                 }
                 for v in layer1.views
@@ -229,6 +255,8 @@ async def diagnose(file: UploadFile = File(...)):
             "total_processing_time": total_elapsed,
             "icd10_code": icd_code,
             "icd10_description": icd_desc,
+            "icd10_match_type": icd_mapping.get("match_type", ""),
+            "icd10_warning": icd_mapping.get("warning", ""),
             "drug_safety": drug_safety,
         }
         return response
@@ -309,13 +337,14 @@ async def analyze_mri(
         # Run nnU-Net segmentation
         from mri.predictor import get_predictor
         predictor = get_predictor()
-        segmentation = predictor.predict(
+        prediction = predictor.predict(
             t1=volumes["t1"],
             t1ce=volumes["t1ce"],
             t2=volumes["t2"],
             flair=volumes["flair"],
             spacing=spacing,
         )
+        segmentation = prediction["segmentation"]
 
         logger.info(f"Segmentation labels: {np.unique(segmentation)}")
 
@@ -336,6 +365,8 @@ async def analyze_mri(
             "meshes": meshes,
             "stats": stats,
             "processing_time": round(processing_time, 2),
+            "inference_time_seconds": prediction["inference_time_seconds"],
+            "performance_note": prediction["performance_note"],
             "volume_shape": list(vol_shape),
             "voxel_spacing": list(spacing),
         }
