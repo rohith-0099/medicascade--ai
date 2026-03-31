@@ -233,6 +233,8 @@ async def diagnose(file: UploadFile = File(...)):
         }
         return response
 
+    except HTTPException:
+        raise  # let FastAPI handle 422/404/etc. correctly — don't convert to 500
     except Exception as e:
         print(f"[API ERROR] {e}")
         raise HTTPException(status_code=500, detail=f"Processing error: {e}")
