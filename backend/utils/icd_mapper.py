@@ -3,13 +3,13 @@ ICD-10-CM code mapper for common diagnoses.
 Uses a local lookup table — no external API or API key required.
 Performs exact → partial → keyword fuzzy matching.
 """
-from difflib import SequenceMatcher
 import re
-from typing import Any, Dict, Tuple
+from difflib import SequenceMatcher
+from typing import Any
 
 # (ICD-10-CM code, official description)
 _ICD10: dict = {
-    # ── Metabolic / Endocrine ─────────────────────────────────────────────
+    # Metabolic / Endocrine
     "type 2 diabetes mellitus": ("E11.9",  "Type 2 diabetes mellitus without complications"),
     "type 1 diabetes mellitus": ("E10.9",  "Type 1 diabetes mellitus without complications"),
     "uncontrolled type 2 diabetes": ("E11.65", "Type 2 diabetes mellitus with hyperglycemia"),
@@ -28,7 +28,7 @@ _ICD10: dict = {
     "hypertriglyceridemia": ("E78.1",  "Pure hyperglyceridemia"),
     "wilson disease": ("E83.01", "Wilson's disease"),
     "wilson's disease": ("E83.01", "Wilson's disease"),
-    # ── Cardiovascular ────────────────────────────────────────────────────
+    # Cardiovascular
     "acute myocardial infarction": ("I21.9",  "Acute myocardial infarction, unspecified"),
     "myocardial infarction": ("I21.9",  "Acute myocardial infarction, unspecified"),
     "stemi": ("I21.3",  "ST elevation myocardial infarction of unspecified site"),
@@ -49,7 +49,7 @@ _ICD10: dict = {
     "dvt": ("I82.409", "Acute deep vein thrombosis of unspecified deep vessels"),
     "aortic stenosis": ("I35.0",  "Nonrheumatic aortic (valve) stenosis"),
     "peripheral artery disease": ("I73.9", "Peripheral vascular disease, unspecified"),
-    # ── Renal ─────────────────────────────────────────────────────────────
+    # Renal
     "chronic kidney disease": ("N18.9",  "Chronic kidney disease, unspecified"),
     "ckd": ("N18.9",  "Chronic kidney disease, unspecified"),
     "ckd stage 1": ("N18.1",  "Chronic kidney disease, stage 1"),
@@ -65,7 +65,7 @@ _ICD10: dict = {
     "diabetic nephropathy": ("E11.65", "Type 2 diabetes mellitus with hyperglycemia"),
     "nephrotic syndrome": ("N04.9",  "Nephrotic syndrome with unspecified morphologic changes"),
     "nephrolithiasis": ("N20.0",  "Calculus of kidney"),
-    # ── Respiratory ───────────────────────────────────────────────────────
+    # Respiratory
     "pneumonia": ("J18.9",  "Pneumonia, unspecified organism"),
     "community-acquired pneumonia": ("J18.9", "Pneumonia, unspecified organism"),
     "hospital-acquired pneumonia": ("J15.9", "Unspecified bacterial pneumonia"),
@@ -78,7 +78,7 @@ _ICD10: dict = {
     "lung cancer": ("C34.90", "Malignant neoplasm of unspecified part of bronchus and lung"),
     "covid-19": ("U07.1",  "COVID-19"),
     "covid": ("U07.1",  "COVID-19"),
-    # ── Neurological ──────────────────────────────────────────────────────
+    # Neurological
     "glioblastoma": ("C71.9",  "Malignant neoplasm of brain, unspecified"),
     "glioblastoma multiforme": ("C71.9", "Malignant neoplasm of brain, unspecified"),
     "brain tumor": ("C71.9",  "Malignant neoplasm of brain, unspecified"),
@@ -95,7 +95,7 @@ _ICD10: dict = {
     "migraine": ("G43.909", "Migraine, unspecified, not intractable"),
     "peripheral neuropathy": ("G60.9", "Hereditary and idiopathic neuropathy, unspecified"),
     "diabetic neuropathy": ("E11.40", "Type 2 diabetes mellitus with diabetic neuropathy, unspecified"),
-    # ── Gastrointestinal / Hepatic ────────────────────────────────────────
+    # Gastrointestinal / Hepatic
     "liver cirrhosis": ("K74.60", "Unspecified cirrhosis of liver"),
     "cirrhosis": ("K74.60", "Unspecified cirrhosis of liver"),
     "hepatitis b": ("B18.1",  "Chronic viral hepatitis B without delta-agent"),
@@ -109,7 +109,7 @@ _ICD10: dict = {
     "crohn's disease": ("K50.90", "Crohn's disease of small intestine without complications"),
     "ulcerative colitis": ("K51.90", "Ulcerative colitis, unspecified, without complications"),
     "colon cancer": ("C18.9",  "Malignant neoplasm of colon, unspecified"),
-    # ── Infectious ────────────────────────────────────────────────────────
+    # Infectious
     "sepsis": ("A41.9",  "Sepsis, unspecified organism"),
     "septic shock": ("A41.9",  "Sepsis, unspecified organism"),
     "tuberculosis": ("A15.9",  "Respiratory tuberculosis, unspecified"),
@@ -117,23 +117,23 @@ _ICD10: dict = {
     "malaria": ("B54",    "Unspecified malaria"),
     "urinary tract infection": ("N39.0", "Urinary tract infection, site not specified"),
     "uti": ("N39.0",  "Urinary tract infection, site not specified"),
-    # ── Oncology ──────────────────────────────────────────────────────────
+    # Oncology
     "breast cancer": ("C50.919", "Malignant neoplasm of unspecified site of unspecified female breast"),
     "prostate cancer": ("C61",   "Malignant neoplasm of prostate"),
     "lymphoma": ("C85.90", "Non-Hodgkin lymphoma, unspecified, unspecified site"),
     "leukemia": ("C95.90", "Leukemia, unspecified, not having achieved remission"),
-    # ── Musculoskeletal ───────────────────────────────────────────────────
+    # Musculoskeletal
     "rheumatoid arthritis": ("M05.79", "Rheumatoid arthritis with rheumatoid factor of multiple sites"),
     "osteoarthritis": ("M19.90", "Primary osteoarthritis, unspecified site"),
     "osteoporosis": ("M81.0",  "Age-related osteoporosis without current pathological fracture"),
     "gout": ("M10.9",  "Gout, unspecified"),
     "lupus": ("M32.9",  "Systemic lupus erythematosus, unspecified"),
-    # ── Mental Health ─────────────────────────────────────────────────────
+    # Mental Health
     "depression": ("F32.9",  "Major depressive disorder, single episode, unspecified"),
     "anxiety": ("F41.9",  "Anxiety disorder, unspecified"),
     "schizophrenia": ("F20.9",  "Schizophrenia, unspecified"),
     "bipolar disorder": ("F31.9",  "Bipolar disorder, unspecified"),
-    # ── Default ───────────────────────────────────────────────────────────
+    # Default
     "undetermined": ("R69",   "Illness, unspecified"),
 }
 
@@ -150,7 +150,7 @@ def _build_result(
     match_type: str,
     score: float,
     matched_term: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         "diagnosis": diagnosis,
         "icd10_code": code,
@@ -162,7 +162,7 @@ def _build_result(
     }
 
 
-def _unmatched_result(diagnosis: str) -> Dict[str, Any]:
+def _unmatched_result(diagnosis: str) -> dict[str, Any]:
     clean_diagnosis = diagnosis.strip() if diagnosis else "Undetermined diagnosis"
     return {
         "diagnosis": clean_diagnosis,
@@ -176,7 +176,7 @@ def _unmatched_result(diagnosis: str) -> Dict[str, Any]:
     }
 
 
-def _local_lookup(diagnosis: str) -> Dict[str, Any]:
+def _local_lookup(diagnosis: str) -> dict[str, Any]:
     lower = _normalize(diagnosis)
     if not lower:
         return {"matched": False, "score": 0.0}
@@ -213,7 +213,7 @@ def _local_lookup(diagnosis: str) -> Dict[str, Any]:
     return {"matched": False, "score": 0.0}
 
 
-def _fuzzy_match(diagnosis: str) -> Dict[str, Any]:
+def _fuzzy_match(diagnosis: str) -> dict[str, Any]:
     lower = _normalize(diagnosis)
     if not lower:
         return {"matched": False, "score": 0.0}
@@ -233,7 +233,7 @@ def _fuzzy_match(diagnosis: str) -> Dict[str, Any]:
     return _build_result(diagnosis, code, desc, True, "fuzzy", best_score, best_key)
 
 
-def map_to_icd10(diagnosis: str) -> Dict[str, Any]:
+def map_to_icd10(diagnosis: str) -> dict[str, Any]:
     """
     Map a free-text diagnosis to ICD-10-CM with explicit match quality metadata.
 
@@ -250,7 +250,7 @@ def map_to_icd10(diagnosis: str) -> Dict[str, Any]:
     return _unmatched_result(diagnosis)
 
 
-def get_icd10_code(diagnosis: str) -> Tuple[str, str]:
+def get_icd10_code(diagnosis: str) -> tuple[str, str]:
     """
     Compatibility wrapper returning only (code, description).
     """

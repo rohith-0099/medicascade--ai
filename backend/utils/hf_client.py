@@ -11,14 +11,18 @@ The HF Inference ecosystem has two endpoints:
 If a URL fails, set the override in config.py (HF_CHAT_URL / HF_INFERENCE_URL).
 """
 
-import requests
 import json
+import logging
+import os
 import re
 import time
-import os
-from typing import Dict, Any, Optional, List
 from pathlib import Path
+from typing import Any, Optional
+
+import requests
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Load .env before reading any env vars so the token is always available
 _env_path = Path(__file__).resolve().parent.parent / ".env"
@@ -27,7 +31,7 @@ load_dotenv(dotenv_path=_env_path, override=False)
 
 class MediCascadeHFClient:
 
-    # ── Paste your working URL here if the default stops working ─────────────
+    # Paste your working URL here if the default stops working
     # Chat / OpenAI-compat endpoint (for MedGemma 4B, OpenMed)
     CHAT_URL = os.getenv("HF_CHAT_URL", "https://router.huggingface.co/v1/chat/completions")
 
@@ -40,38 +44,36 @@ class MediCascadeHFClient:
     def __init__(self):
         self.token = os.getenv("HF_API_TOKEN", "").strip()
         if not self.token:
-            raise EnvironmentError(
+            raise OSError(
                 "HF_API_TOKEN is not set. "
                 "Add it to backend/.env: HF_API_TOKEN=hf_..."
             )
         self.auth_header = {"Authorization": f"Bearer {self.token}"}
-        print(f"[HF Client] Token loaded: {self.token[:12]}...")
-        print(f"[HF Client] Chat URL  : {self.CHAT_URL}")
-        print(f"[HF Client] Infer URL : {self.INFERENCE_URL}")
+        logger.info(f"[HF Client] Token loaded: {self.token[:12]}...")
+        logger.info(f"[HF Client] Chat URL  : {self.CHAT_URL}")
+        logger.info(f"[HF Client] Infer URL : {self.INFERENCE_URL}")
 
-    # ─────────────────────────────────────────────────────────────────────────
     # Internal POST with retry
-    # ─────────────────────────────────────────────────────────────────────────
 
-    def _post(self, url: str, payload: Dict, timeout: int = 60, retries: int = 2) -> Any:
+    def _post(self, url: str, payload: dict, timeout: int = 60, retries: int = 2) -> Any:
         headers = {**self.auth_header, "Content-Type": "application/json"}
         for attempt in range(retries + 1):
             try:
                 resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
                 if resp.status_code == 503:
                     wait = 20 * (attempt + 1)
-                    print(f"[HF] 503 model loading, waiting {wait}s (attempt {attempt+1})...")
+                    logger.info(f"[HF] 503 model loading, waiting {wait}s (attempt {attempt+1})...")
                     time.sleep(wait)
                     continue
                 if resp.status_code in (401, 403):
-                    print(f"[HF] {resp.status_code} auth error — check token or accept model license.")
-                    print(f"[HF] URL: {url}")
+                    logger.info(f"[HF] {resp.status_code} auth error — check token or accept model license.")
+                    logger.info(f"[HF] URL: {url}")
                     return {"error": f"auth_{resp.status_code}"}
                 if resp.status_code == 404:
-                    print(f"[HF] 404 Not Found — URL may have changed: {url}")
+                    logger.info(f"[HF] 404 Not Found — URL may have changed: {url}")
                     return {"error": "not_found_404"}
                 if resp.status_code == 400:
-                    print(f"[HF] 400 Bad Request — {resp.text[:200]}")
+                    logger.info(f"[HF] 400 Bad Request — {resp.text[:200]}")
                     return {"error": f"bad_request: {resp.text[:100]}"}
                 resp.raise_for_status()
                 return resp.json()
@@ -83,9 +85,7 @@ class MediCascadeHFClient:
                     return {"error": str(e)}
         return {"error": "max_retries"}
 
-    # ─────────────────────────────────────────────────────────────────────────
     # Text generation — tries chat endpoint first, then classic inference
-    # ─────────────────────────────────────────────────────────────────────────
 
     def generate_text(self, model: str, prompt: str,
                       max_new_tokens: int = 512, temperature: float = 0.3) -> str:
@@ -94,7 +94,7 @@ class MediCascadeHFClient:
         Falls back to hf-inference/models/{model} classic endpoint.
         Falls back further to router.huggingface.co/models/{model} (legacy).
         """
-        # ── Attempt 1: Chat completions (works for MedGemma, OpenMed) ─────────
+        # Attempt 1: Chat completions (works for MedGemma, OpenMed)
         chat_payload = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
@@ -107,9 +107,9 @@ class MediCascadeHFClient:
         if isinstance(result, dict) and "error" not in result:
             return str(result)
 
-        print(f"[HF] Chat endpoint failed for {model}, trying classic inference...")
+        logger.info(f"[HF] Chat endpoint failed for {model}, trying classic inference...")
 
-        # ── Attempt 2: Classic hf-inference/models ────────────────────────────
+        # Attempt 2: Classic hf-inference/models
         classic_url = f"{self.INFERENCE_URL}/{model}"
         classic_payload = {
             "inputs": prompt,
@@ -126,9 +126,9 @@ class MediCascadeHFClient:
         if isinstance(result2, dict) and "generated_text" in result2:
             return result2["generated_text"]
 
-        print(f"[HF] Classic inference failed for {model}, trying legacy URL...")
+        logger.info(f"[HF] Classic inference failed for {model}, trying legacy URL...")
 
-        # ── Attempt 3: Legacy router/models ──────────────────────────────────
+        # Attempt 3: Legacy router/models
         legacy_url = f"{self.LEGACY_URL}/{model}"
         result3 = self._post(legacy_url, classic_payload, timeout=90)
         if isinstance(result3, list) and len(result3) > 0:
@@ -136,14 +136,12 @@ class MediCascadeHFClient:
         if isinstance(result3, dict) and "generated_text" in result3:
             return result3["generated_text"]
 
-        print(f"[HF] All endpoints failed for {model}")
+        logger.info(f"[HF] All endpoints failed for {model}")
         return ""
 
-    # ─────────────────────────────────────────────────────────────────────────
     # NER / token-classification (GatorTron)
-    # ─────────────────────────────────────────────────────────────────────────
 
-    def ner(self, model: str, text: str) -> List[Dict]:
+    def ner(self, model: str, text: str) -> list[dict]:
         """Token-classification via hf-inference (GatorTron NER)."""
         url = f"{self.INFERENCE_URL}/{model}"
         result = self._post(url, {"inputs": text[:512]}, timeout=60)
@@ -154,12 +152,10 @@ class MediCascadeHFClient:
         result2 = self._post(url2, {"inputs": text[:512]}, timeout=60)
         if isinstance(result2, list):
             return result2
-        print(f"[HF] NER failed for {model}: {result}")
+        logger.info(f"[HF] NER failed for {model}: {result}")
         return []
 
-    # ─────────────────────────────────────────────────────────────────────────
     # Vision + Text (MedGemma multimodal)
-    # ─────────────────────────────────────────────────────────────────────────
 
     def vision_query(self, model: str, image_bytes: bytes, prompt: str) -> str:
         """Vision+text via multimodal chat endpoint."""
@@ -180,14 +176,12 @@ class MediCascadeHFClient:
         result = self._post(self.CHAT_URL, chat_payload, timeout=120)
         if isinstance(result, dict) and "choices" in result:
             return result["choices"][0]["message"]["content"]
-        print(f"[HF] Vision query failed: {result}")
+        logger.info(f"[HF] Vision query failed: {result}")
         return ""
 
-    # ─────────────────────────────────────────────────────────────────────────
     # Feature extraction (for SHAP)
-    # ─────────────────────────────────────────────────────────────────────────
 
-    def feature_extraction(self, model: str, text: str) -> List[float]:
+    def feature_extraction(self, model: str, text: str) -> list[float]:
         url = f"{self.INFERENCE_URL}/{model}"
         result = self._post(url, {"inputs": text[:512]}, timeout=30)
         if isinstance(result, list) and len(result) > 0:
@@ -196,11 +190,9 @@ class MediCascadeHFClient:
                 return [sum(row[i] for row in first) / len(first) for i in range(len(first[0]))]
         return []
 
-    # ─────────────────────────────────────────────────────────────────────────
     # JSON extraction helper
-    # ─────────────────────────────────────────────────────────────────────────
 
-    def extract_json(self, text: str) -> Dict:
+    def extract_json(self, text: str) -> dict:
         try:
             return json.loads(text)
         except Exception:

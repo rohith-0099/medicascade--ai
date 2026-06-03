@@ -5,12 +5,15 @@ pdf2image / Pillow intentionally removed — not compatible with Python 3.14.
 OCR via pytesseract is attempted only when pytesseract is available.
 """
 
-import io
 import base64
-import re
-import PyPDF2
+import io
+import logging
+from typing import Any
+
 import pdfplumber
-from typing import List, Dict, Any, Tuple
+import PyPDF2
+
+logger = logging.getLogger(__name__)
 
 
 class PDFExtractor:
@@ -18,7 +21,7 @@ class PDFExtractor:
     def __init__(self, pdf_path: str):
         self.pdf_path = pdf_path
 
-    # ── Text extraction ────────────────────────────────────────────────────────
+    # Text extraction
 
     def extract_text(self) -> str:
         """Extract raw text. Tries pdfplumber first (better layout), then PyPDF2."""
@@ -34,7 +37,7 @@ class PDFExtractor:
             if len(text.strip()) >= 100:
                 return text.strip()
         except Exception as e:
-            print(f"[PDFExtractor] pdfplumber failed: {e}")
+            logger.info(f"[PDFExtractor] pdfplumber failed: {e}")
 
         # Fallback: PyPDF2
         try:
@@ -45,7 +48,7 @@ class PDFExtractor:
                     if page_text:
                         text += page_text + "\n"
         except Exception as e:
-            print(f"[PDFExtractor] PyPDF2 fallback failed: {e}")
+            logger.info(f"[PDFExtractor] PyPDF2 fallback failed: {e}")
 
         return text.strip()
 
@@ -53,7 +56,6 @@ class PDFExtractor:
         """OCR using pytesseract (only if available and Pillow is installed)."""
         try:
             import pytesseract
-            from PIL import Image as PilImage
             # Try to find page images via pdfplumber page renders
             pages_text = ""
             with pdfplumber.open(self.pdf_path) as pdf:
@@ -65,18 +67,18 @@ class PDFExtractor:
                         ocr_text = pytesseract.image_to_string(pil_img)
                         pages_text += f"\n--- Page {i+1} ---\n{ocr_text}\n"
                     except Exception as pe:
-                        print(f"[PDFExtractor] OCR page {i+1} failed: {pe}")
+                        logger.info(f"[PDFExtractor] OCR page {i+1} failed: {pe}")
             return pages_text.strip()
         except ImportError:
-            print("[PDFExtractor] pytesseract / Pillow not available — skipping OCR")
+            logger.info("[PDFExtractor] pytesseract / Pillow not available — skipping OCR")
             return ""
         except Exception as e:
-            print(f"[PDFExtractor] OCR extraction failed: {e}")
+            logger.info(f"[PDFExtractor] OCR extraction failed: {e}")
             return ""
 
-    # ── Table extraction ───────────────────────────────────────────────────────
+    # Table extraction
 
-    def extract_tables(self) -> List[Dict[str, Any]]:
+    def extract_tables(self) -> list[dict[str, Any]]:
         """Extract all tables from the PDF via pdfplumber."""
         tables = []
         try:
@@ -98,12 +100,12 @@ class PDFExtractor:
                             ]
                         })
         except Exception as e:
-            print(f"[PDFExtractor] Table extraction failed: {e}")
+            logger.info(f"[PDFExtractor] Table extraction failed: {e}")
         return tables
 
-    # ── Image extraction ──────────────────────────────────────────────────────
+    # Image extraction
 
-    def extract_images(self) -> List[str]:
+    def extract_images(self) -> list[str]:
         """
         Render each PDF page as an image (base64 PNG) via pdfplumber.
         Falls back to extracting embedded image bytes if rendering unavailable.
@@ -126,7 +128,7 @@ class PDFExtractor:
         # Attempt 2: extract raw embedded image bytes via PyPDF2
         return self.extract_embedded_images()
 
-    def extract_embedded_images(self) -> List[str]:
+    def extract_embedded_images(self) -> list[str]:
         """Extract JPEG/raw image objects embedded in the PDF."""
         images_base64 = []
         try:
@@ -148,12 +150,12 @@ class PDFExtractor:
                             except Exception:
                                 pass
         except Exception as e:
-            print(f"[PDFExtractor] Embedded image extraction failed: {e}")
+            logger.info(f"[PDFExtractor] Embedded image extraction failed: {e}")
         return images_base64
 
-    # ── Smart combined extract ─────────────────────────────────────────────────
+    # Smart combined extract
 
-    def smart_extract(self) -> Tuple[str, List[str]]:
+    def smart_extract(self) -> tuple[str, list[str]]:
         """
         Decides extraction strategy based on text density:
         - Text-rich PDFs: extract text + embedded images
@@ -163,10 +165,10 @@ class PDFExtractor:
         text_len = len(text.strip())
 
         if text_len >= 200:
-            print(f"[PDFExtractor] Text-rich document ({text_len} chars). Using embedded images.")
+            logger.info(f"[PDFExtractor] Text-rich document ({text_len} chars). Using embedded images.")
             images = self.extract_embedded_images()
         else:
-            print(f"[PDFExtractor] Low text ({text_len} chars). Attempting OCR + page renders.")
+            logger.info(f"[PDFExtractor] Low text ({text_len} chars). Attempting OCR + page renders.")
             ocr_text = self.extract_text_with_ocr()
             if len(ocr_text) > text_len:
                 text = ocr_text

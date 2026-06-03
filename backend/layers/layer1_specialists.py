@@ -4,10 +4,9 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import requests as _requests
-
 from config import check_ollama_available, settings
 from schemas import CaseDocument, Layer1Findings, SpecialistView
 from utils.drug_checker import check_medications
@@ -32,7 +31,7 @@ EXPECTED_AGENTS = [
 ]
 SPECIALIST_COUNT = 7
 
-# ── Specialist model registry ────────────────────────────────────────────────
+# Specialist model registry
 SPECIALIST_CONFIGS = {
     "notes":            ("llama-3.3-70b-versatile", "Meta LLaMA 3.3 70B Versatile"),
     "labs":             ("llama-3.3-70b-versatile", "Meta LLaMA 3.3 70B Versatile"),
@@ -64,7 +63,7 @@ class Layer1Specialists:
             try:
                 self.groq_client = Groq(api_key=settings.GROQ_API_KEY)
             except Exception as e:
-                print(f"[Layer 1] Groq client init failed, fallback mode enabled: {e}")
+                logger.info(f"[Layer 1] Groq client init failed, fallback mode enabled: {e}")
 
         self.model = settings.GROQ_MODEL
         self.openrouter_base_url = settings.OPENROUTER_BASE_URL.rstrip("/")
@@ -76,18 +75,18 @@ class Layer1Specialists:
         self.imaging_vision_enabled = bool(settings.HF_API_TOKEN.strip())
 
         if self.openrouter_api_key:
-            print(f"[Layer 1] OpenRouter fallback ready: {self.openrouter_model}")
+            logger.info(f"[Layer 1] OpenRouter fallback ready: {self.openrouter_model}")
         if self._ollama_available:
-            print(f"[Layer 1] Ollama local fallback ready: {self.ollama_model}")
+            logger.info(f"[Layer 1] Ollama local fallback ready: {self.ollama_model}")
         else:
-            print("[Layer 1] Ollama not detected at startup; deterministic fallback remains available.")
+            logger.info("[Layer 1] Ollama not detected at startup; deterministic fallback remains available.")
         if self.imaging_vision_enabled:
-            print(f"[Layer 1] Imaging vision enabled via {settings.HF_VISION_MODEL}")
+            logger.info(f"[Layer 1] Imaging vision enabled via {settings.HF_VISION_MODEL}")
         else:
-            print("[Layer 1] Imaging vision disabled. Set HF_API_TOKEN to enable MedGemma analysis.")
-        print("[Layer 1] Multi-model specialist layer ready")
+            logger.info("[Layer 1] Imaging vision disabled. Set HF_API_TOKEN to enable MedGemma analysis.")
+        logger.info("[Layer 1] Multi-model specialist layer ready")
 
-    # ── public API ──────────────────────────────────────────────────────────
+    # public API
     def process(self, case: CaseDocument) -> Layer1Findings:
         tasks = {
             "notes": lambda: self._notes_agent(case),
@@ -99,7 +98,7 @@ class Layer1Specialists:
             "imaging": lambda: self._imaging_agent(case),
         }
 
-        specialist_results: List[SpecialistView] = []
+        specialist_results: list[SpecialistView] = []
         with ThreadPoolExecutor(max_workers=SPECIALIST_COUNT) as pool:
             future_map = {pool.submit(fn): name for name, fn in tasks.items()}
             for future in as_completed(future_map):
@@ -107,9 +106,9 @@ class Layer1Specialists:
                 try:
                     view = future.result()
                     specialist_results.append(view)
-                    print(f"[Layer 1] [OK] {name} view ready ({view.confidence:.0%})")
+                    logger.info(f"[Layer 1] [OK] {name} view ready ({view.confidence:.0%})")
                 except Exception as e:
-                    print(f"[Layer 1] [FAIL] {name} failed: {e}")
+                    logger.info(f"[Layer 1] [FAIL] {name} failed: {e}")
                     specialist_results.append(self._error_view(name, str(e)))
 
         specialist_results = self._validate_specialist_results(specialist_results)
@@ -136,10 +135,10 @@ class Layer1Specialists:
         with open(findings_path, "w", encoding="utf-8") as f:
             json.dump(findings.model_dump(mode="json"), f, indent=2)
         findings.findings_json_path = findings_path
-        print(f"[Layer 1] layer1_findings.json saved -> {findings_path}")
+        logger.info(f"[Layer 1] layer1_findings.json saved -> {findings_path}")
         return findings
 
-    # ── agents ─────────────────────────────────────────────────────────────
+    # agents
     def _notes_agent(self, case: CaseDocument) -> SpecialistView:
         notes_text = self._compose_notes_context(case)
         prompt = (
@@ -218,7 +217,7 @@ class Layer1Specialists:
                 if fda_result.get("warnings") or fda_result.get("interactions"):
                     confidence = min(1.0, confidence + 0.05)
             except Exception as e:
-                print(f"[Layer 1] FDA drug check failed: {e}")
+                logger.info(f"[Layer 1] FDA drug check failed: {e}")
 
         findings["_confidence"] = confidence
         return self._build_view(
@@ -349,13 +348,13 @@ class Layer1Specialists:
                 },
             )
 
-    # ── helpers ─────────────────────────────────────────────────────────────
+    # helpers
     def _build_view(
         self,
         agent: str,
         role: str,
         model_label: str,
-        findings: Dict[str, Any],
+        findings: dict[str, Any],
         default_confidence: float,
         model_name: str = "",
     ) -> SpecialistView:
@@ -397,7 +396,7 @@ class Layer1Specialists:
             findings={"error": error},
         )
 
-    def _validate_specialist_results(self, views: List[SpecialistView]) -> List[SpecialistView]:
+    def _validate_specialist_results(self, views: list[SpecialistView]) -> list[SpecialistView]:
         by_agent = {view.agent: view for view in views}
         missing = [agent for agent in EXPECTED_AGENTS if agent not in by_agent]
         extras = [agent for agent in by_agent if agent not in EXPECTED_AGENTS]
@@ -427,7 +426,7 @@ class Layer1Specialists:
             payload = encoded_image.split(",", 1)[1]
         return base64.b64decode(payload)
 
-    def _normalize_imaging_findings(self, findings: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_imaging_findings(self, findings: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(findings or {})
         for key in ("findings", "abnormalities"):
             normalized[key] = self._coerce_to_string_list(normalized.get(key))
@@ -440,7 +439,7 @@ class Layer1Specialists:
             normalized["_confidence"] = 0.4
         return normalized
 
-    def _llm_json(self, system_prompt: str, content: str, agent_name: str = "notes") -> Dict[str, Any]:
+    def _llm_json(self, system_prompt: str, content: str, agent_name: str = "notes") -> dict[str, Any]:
         model = SPECIALIST_CONFIGS.get(agent_name, (self.model, self.model))[0]
         sampled_content = self._windowed_excerpt(content or "", max_chars=12000)
         prompt = {
@@ -456,8 +455,8 @@ class Layer1Specialists:
             )
         return self._call_with_fallback(prompt, agent_name)
 
-    def _call_with_fallback(self, prompt: Dict[str, str], specialist_name: str) -> Dict[str, Any]:
-        errors: List[str] = []
+    def _call_with_fallback(self, prompt: dict[str, str], specialist_name: str) -> dict[str, Any]:
+        errors: list[str] = []
 
         try:
             return self._call_groq(prompt)
@@ -502,7 +501,7 @@ class Layer1Specialists:
         )
         return self._deterministic_heuristic_fallback(prompt, specialist_name, reason=final_reason)
 
-    def _call_groq(self, prompt: Dict[str, str]) -> Dict[str, Any]:
+    def _call_groq(self, prompt: dict[str, str]) -> dict[str, Any]:
         if not self.groq_client:
             raise RuntimeError("GROQ_API_KEY missing or Groq client unavailable")
         resp = self.groq_client.chat.completions.create(
@@ -521,7 +520,7 @@ class Layer1Specialists:
         parsed["_source"] = "groq"
         return parsed
 
-    def _call_openrouter(self, prompt: Dict[str, str]) -> Dict[str, Any]:
+    def _call_openrouter(self, prompt: dict[str, str]) -> dict[str, Any]:
         if not self.openrouter_api_key:
             raise RuntimeError("OPENROUTER_API_KEY missing")
 
@@ -552,7 +551,7 @@ class Layer1Specialists:
         parsed["_source"] = "openrouter"
         return parsed
 
-    def _call_ollama(self, prompt: Dict[str, str]) -> Dict[str, Any]:
+    def _call_ollama(self, prompt: dict[str, str]) -> dict[str, Any]:
         ollama_resp = _requests.post(
             f"{self.ollama_url}/api/chat",
             json={
@@ -575,7 +574,7 @@ class Layer1Specialists:
         parsed["_source"] = "ollama"
         return parsed
 
-    def _coerce_json_content(self, raw: str) -> Dict[str, Any]:
+    def _coerce_json_content(self, raw: str) -> dict[str, Any]:
         if isinstance(raw, dict):
             return raw
         try:
@@ -600,13 +599,13 @@ class Layer1Specialists:
 
     def _deterministic_heuristic_fallback(
         self,
-        prompt: Dict[str, str],
+        prompt: dict[str, str],
         specialist_name: str,
         reason: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         content = prompt.get("content", "")
         excerpt = content[:400]
-        fallback: Dict[str, Any] = {
+        fallback: dict[str, Any] = {
             "_confidence": 0.3,
             "_source": "deterministic_heuristic",
             "_fallback_used": True,
@@ -670,7 +669,7 @@ class Layer1Specialists:
 
         return fallback
 
-    def _heuristic_medications(self, text: str) -> List[str]:
+    def _heuristic_medications(self, text: str) -> list[str]:
         common_meds = re.findall(
             r"\b(metformin|aspirin|atorvastatin|lisinopril|amlodipine|"
             r"losartan|omeprazole|warfarin|insulin|glipizide|glimepiride|"
@@ -683,7 +682,7 @@ class Layer1Specialists:
 
     def _compose_notes_context(self, case: CaseDocument) -> str:
         notes = "\n".join(str(f.value) for f in case.facts.notes if f.value)
-        table_timeline_lines: List[str] = []
+        table_timeline_lines: list[str] = []
         for table in case.tables:
             headers = [str(h).lower() for h in table.get("headers", [])]
             if not any("symptom" in h for h in headers):
@@ -721,9 +720,9 @@ class Layer1Specialists:
         tail = text[-section:]
         return "\n...\n".join([head, mid, tail])
 
-    def _coerce_to_string_list(self, value: Any) -> List[str]:
+    def _coerce_to_string_list(self, value: Any) -> list[str]:
         if isinstance(value, list):
-            out: List[str] = []
+            out: list[str] = []
             for item in value:
                 if isinstance(item, str):
                     if item.strip():
@@ -738,9 +737,9 @@ class Layer1Specialists:
             return [part for part in parts if part]
         return []
 
-    def _normalize_labs_findings(self, findings: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_labs_findings(self, findings: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(findings, dict):
-            normalized: Dict[str, Any] = {}
+            normalized: dict[str, Any] = {}
         else:
             normalized = dict(findings or {})
         for key in ("patterns", "risk_flags", "red_flags"):
@@ -753,7 +752,7 @@ class Layer1Specialists:
             normalized["differentials"] = []
         return normalized
 
-    def _aggregate_summary(self, views: List[SpecialistView]) -> Dict[str, Any]:
+    def _aggregate_summary(self, views: list[SpecialistView]) -> dict[str, Any]:
         fallback_reasons = [
             view.fallback_reason
             for view in views
@@ -771,7 +770,7 @@ class Layer1Specialists:
             summary["candidate_primary"] = primary.findings.get("primary_suspect")
         return summary
 
-    def _build_contract_fields(self, views: List[SpecialistView]) -> Dict[str, Any]:
+    def _build_contract_fields(self, views: list[SpecialistView]) -> dict[str, Any]:
         """
         Builds the required Layer-1 output contract:
           - candidate_diagnoses
@@ -780,11 +779,11 @@ class Layer1Specialists:
           - symptom_timeline
           - risk_factors
         """
-        candidates: List[Dict[str, Any]] = []
-        red_flags: List[str] = []
-        abnormal_labs: List[Dict[str, Any]] = []
-        symptom_timeline: List[Dict[str, Any]] = []
-        risk_factors: List[str] = []
+        candidates: list[dict[str, Any]] = []
+        red_flags: list[str] = []
+        abnormal_labs: list[dict[str, Any]] = []
+        symptom_timeline: list[dict[str, Any]] = []
+        risk_factors: list[str] = []
 
         for view in views:
             findings = view.findings or {}
@@ -851,7 +850,7 @@ class Layer1Specialists:
         dedup_red = list(dict.fromkeys(red_flags))
         dedup_risk = list(dict.fromkeys(risk_factors))
         ranked_candidates = sorted(candidates, key=lambda x: x.get("confidence", 0), reverse=True)
-        dedup_candidates: List[Dict[str, Any]] = []
+        dedup_candidates: list[dict[str, Any]] = []
         seen_diags = set()
         for candidate in ranked_candidates:
             diag = str(candidate.get("diagnosis", "")).strip()
@@ -885,7 +884,7 @@ class Layer1Specialists:
             "risk_factors": dedup_risk[:30],
         }
 
-    def _ensure_notes_fields(self, findings: Dict[str, Any], notes_text: str) -> Dict[str, Any]:
+    def _ensure_notes_fields(self, findings: dict[str, Any], notes_text: str) -> dict[str, Any]:
         extracted_timeline = self._extract_symptom_timeline(notes_text)
         if not isinstance(findings.get("symptom_timeline"), list):
             findings["symptom_timeline"] = extracted_timeline
@@ -898,10 +897,10 @@ class Layer1Specialists:
             findings["red_flags"] = self._extract_red_flags_from_text(notes_text)
         return findings
 
-    def _extract_symptom_timeline(self, text: str) -> List[Dict[str, Any]]:
+    def _extract_symptom_timeline(self, text: str) -> list[dict[str, Any]]:
         import re
 
-        timeline: List[Dict[str, Any]] = []
+        timeline: list[dict[str, Any]] = []
         if not text:
             return timeline
 
@@ -950,7 +949,7 @@ class Layer1Specialists:
                         }
                     )
 
-        deduped: List[Dict[str, Any]] = []
+        deduped: list[dict[str, Any]] = []
         seen = set()
         for item in timeline:
             key = (item["time"], item["symptom"])
@@ -961,8 +960,8 @@ class Layer1Specialists:
 
         return deduped[:30]
 
-    def _merge_timeline(self, existing: List[Dict[str, Any]], extracted: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        merged: List[Dict[str, Any]] = []
+    def _merge_timeline(self, existing: list[dict[str, Any]], extracted: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        merged: list[dict[str, Any]] = []
         seen = set()
         for item in (existing or []) + (extracted or []):
             if not isinstance(item, dict):
@@ -984,7 +983,7 @@ class Layer1Specialists:
             )
         return merged[:40]
 
-    def _fallback_differentials(self, primary: str) -> List[str]:
+    def _fallback_differentials(self, primary: str) -> list[str]:
         primary_low = str(primary or "").lower()
         if "diabetes" in primary_low:
             return [
@@ -1010,7 +1009,7 @@ class Layer1Specialists:
             "Endocrine disorder requiring targeted workup",
         ]
 
-    def _extract_red_flags_from_text(self, text: str) -> List[str]:
+    def _extract_red_flags_from_text(self, text: str) -> list[str]:
         low = text.lower()
         rules = [
             ("severe chest pain", "Possible acute coronary syndrome"),
@@ -1022,20 +1021,20 @@ class Layer1Specialists:
             ("severe fatigue", "Severe fatigue may indicate systemic decompensation"),
             ("pedal edema", "Volume overload or cardiac/renal decompensation risk"),
         ]
-        flags: List[str] = []
+        flags: list[str] = []
         for needle, msg in rules:
             if needle in low:
                 flags.append(msg)
         return flags
 
-    def _heuristic_lab_findings(self, case: CaseDocument) -> Dict[str, Any]:
+    def _heuristic_lab_findings(self, case: CaseDocument) -> dict[str, Any]:
         import re
 
-        labs: Dict[str, float] = {}
-        abnormal_labs: List[Dict[str, Any]] = []
-        patterns: List[str] = []
-        risk_flags: List[str] = []
-        red_flags: List[str] = []
+        labs: dict[str, float] = {}
+        abnormal_labs: list[dict[str, Any]] = []
+        patterns: list[str] = []
+        risk_flags: list[str] = []
+        red_flags: list[str] = []
 
         for fact in case.facts.labs:
             label = str(fact.label).lower()

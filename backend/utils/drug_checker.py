@@ -3,18 +3,20 @@ FDA OpenFDA drug interaction and safety checker.
 Completely free — no API key required.
 Checks each medication against FDA drug labels for interactions, warnings, and contraindications.
 """
+import logging
 import re
 import threading
 import time
-from typing import Dict, List, Optional
 from urllib.parse import urlencode
 
 import requests
 
+logger = logging.getLogger(__name__)
+
 _DRUG_LABEL_URL = "https://api.fda.gov/drug/label.json"
-_cache: Dict[str, Optional[Dict]] = {}
+_cache: dict[str, dict | None] = {}
 _fda_lock = threading.Semaphore(3)
-_fda_call_times: List[float] = []
+_fda_call_times: list[float] = []
 _fda_call_times_lock = threading.Lock()
 _fda_rate_limit = 35
 _FDA_UNAVAILABLE = {"status": "fda_unavailable", "note": "FDA data temporarily unavailable"}
@@ -31,7 +33,7 @@ _ROUTE_RE = re.compile(
 )
 
 
-def check_medications(medications: List[str]) -> Dict:
+def check_medications(medications: list[str]) -> dict:
     """
     Check a list of medication names/strings against FDA drug labels.
 
@@ -44,7 +46,7 @@ def check_medications(medications: List[str]) -> Dict:
             "source": "OpenFDA"
         }
     """
-    result: Dict = {
+    result: dict = {
         "drug_info": [],
         "interactions": [],
         "warnings": [],
@@ -109,7 +111,7 @@ def _clean_name(raw: str) -> str:
     return name
 
 
-def _fetch_label(drug_name: str) -> Optional[Dict]:
+def _fetch_label(drug_name: str) -> dict | None:
     if drug_name in _cache:
         return _cache[drug_name]
 
@@ -133,7 +135,7 @@ def _fetch_label(drug_name: str) -> Optional[Dict]:
     return None
 
 
-def _prune_fda_call_times(now: Optional[float] = None) -> List[float]:
+def _prune_fda_call_times(now: float | None = None) -> list[float]:
     current = now or time.time()
     with _fda_call_times_lock:
         _fda_call_times[:] = [t for t in _fda_call_times if current - t < 60]
@@ -162,7 +164,7 @@ def _rate_limited_fda_call(url: str) -> requests.Response:
         return requests.get(url, timeout=10)
 
 
-def _query_fda(field: str, drug_name: str) -> Optional[Dict]:
+def _query_fda(field: str, drug_name: str) -> dict | None:
     query = urlencode(
         {
             "search": f'{field}:"{drug_name}"',
@@ -186,7 +188,7 @@ def _query_fda(field: str, drug_name: str) -> Optional[Dict]:
 
             r = results[0]
 
-            def pick(keys: List[str]) -> str:
+            def pick(keys: list[str], r=r) -> str:
                 for k in keys:
                     val = r.get(k)
                     if val and isinstance(val, list) and val[0]:
@@ -209,7 +211,7 @@ def _query_fda(field: str, drug_name: str) -> Optional[Dict]:
             if attempt < len(backoff_delays):
                 time.sleep(backoff_delays[attempt])
                 continue
-            print(f"[FDA] Query failed for '{drug_name}': {e}")
+            logger.info(f"[FDA] Query failed for '{drug_name}': {e}")
             return dict(_FDA_UNAVAILABLE)
 
     return dict(_FDA_UNAVAILABLE)

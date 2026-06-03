@@ -1,6 +1,9 @@
 
+import logging
 import re
-from typing import Dict, Any, List
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 class DataClassifier:
 
@@ -20,7 +23,7 @@ class DataClassifier:
     def __init__(self):
         pass  # Pure regex classifier — no external model needed
 
-    def classify_sections(self, text: str) -> Dict[str, str]:
+    def classify_sections(self, text: str) -> dict[str, str]:
         
         sections = self._split_into_sections(text)
         
@@ -48,7 +51,7 @@ class DataClassifier:
         
         return classified_data
     
-    def _split_into_sections(self, text: str) -> List[str]:
+    def _split_into_sections(self, text: str) -> list[str]:
         
         patterns = [
             r'\n(?:Patient Information|PATIENT DETAILS?|Demographics?)[\s:]*\n',
@@ -100,17 +103,9 @@ class DataClassifier:
         if 'allerg' in section_lower:
             return "allergies"
         
-        # Removed slow Ollama fallback
-        # try:
-        #     category = self.ollama.classify_text(section, self.CATEGORIES)
-        #     if category in self.CATEGORIES:
-        #         return category
-        # except Exception as e:
-        #     print(f"Ollama classification error: {e}")
-        
         return "other"
     
-    def extract_patient_info(self, demographics_text: str) -> Dict[str, Any]:
+    def extract_patient_info(self, demographics_text: str) -> dict[str, Any]:
         """Fast Regex-based extraction for patient info"""
         info = {}
         text = demographics_text.lower()
@@ -137,7 +132,7 @@ class DataClassifier:
             
         return info
     
-    def extract_lab_values(self, lab_text: str) -> Dict[str, Any]:
+    def extract_lab_values(self, lab_text: str) -> dict[str, Any]:
         """Fast Regex-based extraction for common lab values"""
         labs = {}
         text = lab_text.lower()

@@ -1,13 +1,15 @@
 import json
+import logging
 import os
 import re
 import textwrap
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import requests
-
 from config import settings
 from schemas import CaseDocument, EvidenceSnippet, FinalAssessment, Layer1Findings, Provenance
+
+logger = logging.getLogger(__name__)
 
 
 class Layer2Validator:
@@ -25,19 +27,19 @@ class Layer2Validator:
         self.groq_model = settings.GROQ_MODEL or "llama-3.3-70b-versatile"
 
         if self.groq_api_key:
-            print(f"[Layer 2] Groq primary validator: {self.groq_model}")
+            logger.info(f"[Layer 2] Groq primary validator: {self.groq_model}")
         if self.api_key:
-            print(f"[Layer 2] OpenRouter fallback: {self.model}")
+            logger.info(f"[Layer 2] OpenRouter fallback: {self.model}")
         if not self.groq_api_key and not self.api_key:
-            print("[Layer 2] No API keys set. Heuristic fallback will be used.")
+            logger.info("[Layer 2] No API keys set. Heuristic fallback will be used.")
 
     def process(self, case: CaseDocument, layer1: Layer1Findings) -> FinalAssessment:
         retrieval_context = self._retrieve_evidence_context(layer1)
         payload = self._build_payload(case, layer1, retrieval_context)
 
-        errors: List[str] = []
+        errors: list[str] = []
         validator_source = ""
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
 
         # Try Groq first (fast, reliable), then OpenRouter as fallback
         if self.groq_api_key:
@@ -85,12 +87,12 @@ class Layer2Validator:
     # ------------------------------------------------------------------ #
     # Evidence retrieval
     # ------------------------------------------------------------------ #
-    def _retrieve_evidence_context(self, layer1: Layer1Findings) -> List[Dict[str, str]]:
+    def _retrieve_evidence_context(self, layer1: Layer1Findings) -> list[dict[str, str]]:
         """
         Retrieves lightweight evidence links/snippets from trusted sources.
         This is kept short and passed into the validator prompt.
         """
-        contexts: List[Dict[str, str]] = []
+        contexts: list[dict[str, str]] = []
 
         diagnoses = [d.get("diagnosis", "") for d in layer1.candidate_diagnoses if d.get("diagnosis")]
         seed_terms = diagnoses[:2] if diagnoses else []
@@ -118,11 +120,11 @@ class Layer2Validator:
 
         return contexts[:12]
 
-    def _pubmed_links(self, term: str) -> List[Dict[str, str]]:
+    def _pubmed_links(self, term: str) -> list[dict[str, str]]:
         """Fetch real PubMed abstracts (not placeholder links)."""
         from utils.pubmed_client import get_evidence_for_diagnosis
         articles = get_evidence_for_diagnosis(term, max_results=3)
-        out: List[Dict[str, str]] = []
+        out: list[dict[str, str]] = []
         for art in articles:
             out.append({
                 "source": "PubMed",
@@ -152,8 +154,8 @@ class Layer2Validator:
         self,
         case: CaseDocument,
         layer1: Layer1Findings,
-        retrieval_context: List[Dict[str, str]],
-    ) -> Dict[str, Any]:
+        retrieval_context: list[dict[str, str]],
+    ) -> dict[str, Any]:
         spec = textwrap.dedent(
             """
             You are Layer-2 Validator. Use only evidence-based reasoning.
@@ -233,7 +235,7 @@ class Layer2Validator:
             ],
         }
 
-    def _call_openrouter(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
+    def _call_openrouter(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
         url = f"{self.base_url}/chat/completions"
         try:
             resp = requests.post(
@@ -260,10 +262,10 @@ class Layer2Validator:
                 body = getattr(e.response, "text", "")
                 if body:
                     message = f"{message} | body={body[:300]}"
-            print(f"[Layer 2] OpenRouter error: {message}")
+            logger.info(f"[Layer 2] OpenRouter error: {message}")
             return {}, message
 
-    def _call_groq(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
+    def _call_groq(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
         if not self.groq_api_key:
             return {}, "GROQ_API_KEY missing"
         try:
@@ -295,13 +297,13 @@ class Layer2Validator:
                 body = getattr(e.response, "text", "")
                 if body:
                     message = f"{message} | body={body[:300]}"
-            print(f"[Layer 2] Groq fallback error: {message}")
+            logger.info(f"[Layer 2] Groq fallback error: {message}")
             return {}, message
 
     # ------------------------------------------------------------------ #
     # Output parsing
     # ------------------------------------------------------------------ #
-    def _parse_validator_output(self, data: Dict[str, Any], case_id: str) -> FinalAssessment:
+    def _parse_validator_output(self, data: dict[str, Any], case_id: str) -> FinalAssessment:
         evidence_pack = [
             EvidenceSnippet(
                 source=item.get("source", "unknown"),
@@ -345,7 +347,7 @@ class Layer2Validator:
         case: CaseDocument,
         layer1: Layer1Findings,
         reason: str,
-        retrieval_context: Optional[List[Dict[str, str]]] = None,
+        retrieval_context: list[dict[str, str]] | None = None,
     ) -> FinalAssessment:
         rule = self._derive_rule_based_signals(case, layer1)
         evidence_items = self._build_evidence_snippets(retrieval_context or [])
@@ -392,7 +394,7 @@ class Layer2Validator:
         assessment: FinalAssessment,
         case: CaseDocument,
         layer1: Layer1Findings,
-        retrieval_context: List[Dict[str, str]],
+        retrieval_context: list[dict[str, str]],
     ) -> FinalAssessment:
         rule = self._derive_rule_based_signals(case, layer1)
 
@@ -442,7 +444,7 @@ class Layer2Validator:
 
         return assessment
 
-    def _derive_rule_based_signals(self, case: CaseDocument, layer1: Layer1Findings) -> Dict[str, Any]:
+    def _derive_rule_based_signals(self, case: CaseDocument, layer1: Layer1Findings) -> dict[str, Any]:
         labs = self._extract_numeric_labs(case)
 
         hba1c = self._pick_lab_entry(labs, ["hba1c", "glycatedhemoglobin"])
@@ -500,11 +502,11 @@ class Layer2Validator:
             confidence = max(confidence, 0.75)
         confidence = max(0.3, min(0.99, confidence))
 
-        red_flags: List[str] = []
-        supported_findings: List[str] = []
-        highlight_targets: List[Provenance] = []
+        red_flags: list[str] = []
+        supported_findings: list[str] = []
+        highlight_targets: list[Provenance] = []
 
-        def add_flag(entry: Optional[Dict[str, Any]], threshold: float, msg: str):
+        def add_flag(entry: dict[str, Any] | None, threshold: float, msg: str):
             if entry and entry["value"] >= threshold:
                 red_flags.append(msg)
                 supported_findings.append(f"{entry['label']} {entry['value']} crossed critical threshold {threshold}.")
@@ -528,7 +530,7 @@ class Layer2Validator:
             supported_findings.append(f"{microalbumin['label']} {microalbumin['value']} suggests diabetic nephropathy risk.")
             highlight_targets.append(self._to_provenance(case, microalbumin))
 
-        final_problem_list: List[str] = [primary] if primary else []
+        final_problem_list: list[str] = [primary] if primary else []
         if ldl and ldl["value"] >= 160:
             final_problem_list.append("Severe dyslipidemia")
         if triglycerides and triglycerides["value"] >= 300:
@@ -547,7 +549,7 @@ class Layer2Validator:
             "differentials": differentials,
         }
 
-    def _rule_based_differentials(self, primary: str) -> List[Dict[str, Any]]:
+    def _rule_based_differentials(self, primary: str) -> list[dict[str, Any]]:
         primary_low = str(primary or "").lower()
         if "diabetes" in primary_low:
             return [
@@ -585,8 +587,8 @@ class Layer2Validator:
             },
         ]
 
-    def _extract_numeric_labs(self, case: CaseDocument) -> List[Dict[str, Any]]:
-        rows: List[Dict[str, Any]] = []
+    def _extract_numeric_labs(self, case: CaseDocument) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
         for fact in case.facts.labs:
             value = self._extract_first_number(str(fact.value))
             if value is None:
@@ -602,7 +604,7 @@ class Layer2Validator:
             )
         return rows
 
-    def _pick_lab_entry(self, labs: List[Dict[str, Any]], aliases: List[str]) -> Optional[Dict[str, Any]]:
+    def _pick_lab_entry(self, labs: list[dict[str, Any]], aliases: list[str]) -> dict[str, Any] | None:
         matches = [
             lab
             for lab in labs
@@ -612,7 +614,7 @@ class Layer2Validator:
             return None
         return max(matches, key=lambda row: row["value"])
 
-    def _to_provenance(self, case: CaseDocument, lab_entry: Dict[str, Any]) -> Provenance:
+    def _to_provenance(self, case: CaseDocument, lab_entry: dict[str, Any]) -> Provenance:
         fact = lab_entry["fact"]
         if fact.provenance:
             return fact.provenance
@@ -623,7 +625,7 @@ class Layer2Validator:
             text_span=f"{fact.label}: {fact.value}",
         )
 
-    def _extract_first_number(self, value: str) -> Optional[float]:
+    def _extract_first_number(self, value: str) -> float | None:
         match = re.search(r"-?\d+(?:\.\d+)?", value)
         if not match:
             return None
@@ -635,7 +637,7 @@ class Layer2Validator:
     def _normalize_label(self, label: str) -> str:
         return re.sub(r"[^a-z0-9]+", "", label.lower())
 
-    def _coerce_json_content(self, content: Any) -> Dict[str, Any]:
+    def _coerce_json_content(self, content: Any) -> dict[str, Any]:
         if isinstance(content, dict):
             return content
         text = str(content or "").strip()
@@ -655,17 +657,17 @@ class Layer2Validator:
             except Exception:
                 return {}
 
-    def _merge_string_lists(self, left: List[str], right: List[str]) -> List[str]:
-        merged: List[str] = []
+    def _merge_string_lists(self, left: list[str], right: list[str]) -> list[str]:
+        merged: list[str] = []
         for item in (left or []) + (right or []):
             text = str(item).strip()
             if text and text not in merged:
                 merged.append(text)
         return merged
 
-    def _merge_highlights(self, left: List[Provenance], right: List[Provenance]) -> List[Provenance]:
+    def _merge_highlights(self, left: list[Provenance], right: list[Provenance]) -> list[Provenance]:
         seen = set()
-        merged: List[Provenance] = []
+        merged: list[Provenance] = []
         for item in (left or []) + (right or []):
             key = (item.pdf_id, item.page, item.text_span or "")
             if key in seen:
@@ -674,7 +676,7 @@ class Layer2Validator:
             merged.append(item)
         return merged[:30]
 
-    def _build_evidence_snippets(self, retrieval_context: List[Dict[str, str]]) -> List[EvidenceSnippet]:
+    def _build_evidence_snippets(self, retrieval_context: list[dict[str, str]]) -> list[EvidenceSnippet]:
         return [
             EvidenceSnippet(
                 source=e.get("source", "unknown"),
@@ -692,7 +694,7 @@ class Layer2Validator:
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(assessment.model_dump(mode="json"), f, indent=2)
         assessment.final_assessment_path = out_path
-        print(f"[Layer 2] final_assessment.json saved -> {out_path}")
+        logger.info(f"[Layer 2] final_assessment.json saved -> {out_path}")
 
 
 layer2_validator = Layer2Validator()

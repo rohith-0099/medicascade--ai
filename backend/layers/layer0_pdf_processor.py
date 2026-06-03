@@ -1,9 +1,11 @@
 import json
+import logging
 import os
 import time
 import uuid
-from typing import Dict, Any, List
+from typing import Any
 
+from config import settings
 from schemas import (
     CaseDocument,
     CaseFacts,
@@ -12,9 +14,10 @@ from schemas import (
     PatientData,
     Provenance,
 )
-from utils.pdf_extractor import PDFExtractor
 from utils.data_classifier import DataClassifier
-from config import settings
+from utils.pdf_extractor import PDFExtractor
+
+logger = logging.getLogger(__name__)
 
 
 class Layer0Processor:
@@ -35,7 +38,7 @@ class Layer0Processor:
         case_id = f"case_{int(start)}_{uuid.uuid4().hex[:6]}"
         pdf_id = os.path.splitext(os.path.basename(pdf_path))[0]
 
-        print(f"[Layer 0] Ingesting PDF '{pdf_path}' as {case_id}")
+        logger.info(f"[Layer 0] Ingesting PDF '{pdf_path}' as {case_id}")
         extractor = PDFExtractor(pdf_path)
 
         text, pdf_images = extractor.smart_extract()
@@ -87,7 +90,7 @@ class Layer0Processor:
             json.dump(case_doc.model_dump(mode="json"), f, indent=2)
 
         elapsed = time.time() - start
-        print(f"[Layer 0] Structured case saved to {case_json_path} ({elapsed:.2f}s)")
+        logger.info(f"[Layer 0] Structured case saved to {case_json_path} ({elapsed:.2f}s)")
 
         # Compatibility bridge for existing specialist modules
         patient_view = PatientData(
@@ -106,28 +109,28 @@ class Layer0Processor:
             images_dir=images_dir,
         )
 
-    # ── helpers ────────────────────────────────────────────────────────────
+    # helpers
 
-    def _load_scan_or_pdf_images(self, scan_path: str | None, pdf_images: List[str]) -> List[str]:
+    def _load_scan_or_pdf_images(self, scan_path: str | None, pdf_images: list[str]) -> list[str]:
         if scan_path:
             import base64
             try:
                 with open(scan_path, "rb") as img_file:
                     encoded = base64.b64encode(img_file.read()).decode("utf-8")
-                    print("[Layer 0] Using dedicated scan image for analysis")
+                    logger.info("[Layer 0] Using dedicated scan image for analysis")
                     return [encoded]
             except Exception as e:
-                print(f"[Layer 0] Scan load error ({e}), falling back to embedded images")
+                logger.info(f"[Layer 0] Scan load error ({e}), falling back to embedded images")
         return pdf_images
 
     def _build_case_facts(
         self,
-        patient_info: Dict[str, Any],
-        lab_results: Dict[str, Any],
-        sections: Dict[str, str],
-        images: List[str],
+        patient_info: dict[str, Any],
+        lab_results: dict[str, Any],
+        sections: dict[str, str],
+        images: list[str],
         pdf_id: str,
-        tables: List[Dict[str, Any]],
+        tables: list[dict[str, Any]],
     ) -> CaseFacts:
         facts = CaseFacts()
 
@@ -173,15 +176,15 @@ class Layer0Processor:
         facts.images = images
         return facts
 
-    def _extract_lab_from_table(self, table: Dict[str, Any]) -> Dict[str, Any]:
-        lab_data: Dict[str, Any] = {}
+    def _extract_lab_from_table(self, table: dict[str, Any]) -> dict[str, Any]:
+        lab_data: dict[str, Any] = {}
         headers = table.get("headers", [])
         rows = table.get("data", [])
 
         test_col = None
         value_col = None
 
-        for i, header in enumerate(headers):
+        for header in headers:
             header_lower = str(header).lower()
             if any(k in header_lower for k in ["test", "parameter", "name"]):
                 test_col = header
@@ -197,7 +200,7 @@ class Layer0Processor:
                         lab_data[test_name] = {"value": test_value, "page": int(table.get("page", 1) or 1)}
         return lab_data
 
-    def _append_table_context_facts(self, facts: CaseFacts, tables: List[Dict[str, Any]], pdf_id: str) -> None:
+    def _append_table_context_facts(self, facts: CaseFacts, tables: list[dict[str, Any]], pdf_id: str) -> None:
         def clean(value: Any) -> str:
             text = str(value or "").replace("(cid:127)", " ").strip()
             return " ".join(text.split())
@@ -254,14 +257,14 @@ class Layer0Processor:
                             )
                         )
 
-    def _pick_row_value(self, row: Dict[str, Any], key_hints: List[str]) -> str:
+    def _pick_row_value(self, row: dict[str, Any], key_hints: list[str]) -> str:
         for key, value in row.items():
             key_low = str(key).lower()
             if any(hint in key_low for hint in key_hints):
                 return str(value or "").strip()
         return ""
 
-    def _persist_images(self, images: List[str], case_dir: str) -> str | None:
+    def _persist_images(self, images: list[str], case_dir: str) -> str | None:
         if not images:
             return None
         import base64
@@ -272,13 +275,13 @@ class Layer0Processor:
                 with open(os.path.join(images_dir, f"scan_{idx}.png"), "wb") as f:
                     f.write(base64.b64decode(img_b64))
             except Exception as e:
-                print(f"[Layer 0] Failed to persist image {idx}: {e}")
+                logger.info(f"[Layer 0] Failed to persist image {idx}: {e}")
         return images_dir
 
-    def _extract_vitals(self, text: str, pdf_id: str) -> List[Fact]:
+    def _extract_vitals(self, text: str, pdf_id: str) -> list[Fact]:
         """Lightweight regex vitals extractor: BP, HR, Temp, SpO2."""
         import re
-        vitals: List[Fact] = []
+        vitals: list[Fact] = []
         if not text:
             return vitals
 

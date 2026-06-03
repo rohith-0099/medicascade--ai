@@ -3,20 +3,22 @@ Real PubMed evidence fetching via NIH eUtils.
 Completely free — no API key required (rate-limited to 3 req/sec without key).
 Fetches actual titles + abstracts instead of placeholder links.
 """
+import logging
 import time
 import xml.etree.ElementTree as ET
-from typing import Dict, List, Optional
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 _ESEARCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 _EFETCH  = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
 # Simple in-process cache so repeated pipeline runs don't hammer NIH
-_cache: Dict[str, List[Dict]] = {}
+_cache: dict[str, list[dict]] = {}
 
 
-def get_evidence_for_diagnosis(diagnosis: str, max_results: int = 3) -> List[Dict]:
+def get_evidence_for_diagnosis(diagnosis: str, max_results: int = 3) -> list[dict]:
     """
     Search PubMed for a diagnosis and return real abstracts.
     Returns a list of dicts: {pmid, title, abstract, year, journal, url, snippet}
@@ -40,7 +42,7 @@ def get_evidence_for_diagnosis(diagnosis: str, max_results: int = 3) -> List[Dic
     return articles
 
 
-def _search(query: str, max_results: int) -> List[str]:
+def _search(query: str, max_results: int) -> list[str]:
     # Use title/abstract + clinical filter for relevance
     focused = f'({query}[Title/Abstract]) AND (clinical[Title/Abstract] OR diagnosis[Title/Abstract] OR treatment[Title/Abstract])'
     try:
@@ -58,11 +60,11 @@ def _search(query: str, max_results: int) -> List[str]:
         resp.raise_for_status()
         return resp.json().get("esearchresult", {}).get("idlist", [])
     except Exception as e:
-        print(f"[PubMed] Search failed for '{query}': {e}")
+        logger.info(f"[PubMed] Search failed for '{query}': {e}")
         return []
 
 
-def _fetch_abstracts(pmids: List[str]) -> List[Dict]:
+def _fetch_abstracts(pmids: list[str]) -> list[dict]:
     if not pmids:
         return []
     try:
@@ -79,7 +81,7 @@ def _fetch_abstracts(pmids: List[str]) -> List[Dict]:
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
     except Exception as e:
-        print(f"[PubMed] Fetch failed: {e}")
+        logger.info(f"[PubMed] Fetch failed: {e}")
         return []
 
     articles = []

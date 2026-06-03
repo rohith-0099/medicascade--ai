@@ -10,7 +10,6 @@ screening is skipped and the pipeline proceeds normally.
 """
 
 import logging
-from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +52,7 @@ def _extract_text_sample(pdf_path: str) -> str:
     return ""
 
 
-def screen_medical_document(pdf_path: str) -> Tuple[bool, str]:
+def screen_medical_document(pdf_path: str) -> tuple[bool, str]:
     """
     Check whether the given PDF is a medical/clinical/healthcare document.
 

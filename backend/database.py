@@ -7,9 +7,7 @@ No external dependencies — built-in Python sqlite3.
 import json
 import os
 import sqlite3
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 _DB_PATH: str = os.environ.get("DB_PATH", "outputs/medicascade.db")
 
@@ -74,9 +72,9 @@ def save_case(
     confidence: float = 0.0,
     processing_time: float = 0.0,
     pdf_path: str = "",
-    layer1_findings: Optional[dict] = None,
-    layer2_assessment: Optional[dict] = None,
-    drug_warnings: Optional[list] = None,
+    layer1_findings: dict | None = None,
+    layer2_assessment: dict | None = None,
+    drug_warnings: list | None = None,
 ) -> None:
     with _conn() as con:
         con.execute(
@@ -102,7 +100,7 @@ def save_case(
         )
 
 
-def get_case_history(limit: int = 20, offset: int = 0) -> List[Dict]:
+def get_case_history(limit: int = 20, offset: int = 0) -> list[dict]:
     with _conn() as con:
         rows = con.execute(
             "SELECT * FROM cases ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -111,7 +109,7 @@ def get_case_history(limit: int = 20, offset: int = 0) -> List[Dict]:
     return [dict(r) for r in rows]
 
 
-def get_case(case_id: str) -> Optional[Dict]:
+def get_case(case_id: str) -> dict | None:
     with _conn() as con:
         row = con.execute(
             "SELECT * FROM cases WHERE case_id = ?", (case_id,)
@@ -119,7 +117,7 @@ def get_case(case_id: str) -> Optional[Dict]:
     return dict(row) if row else None
 
 
-def get_stats() -> Dict:
+def get_stats() -> dict:
     with _conn() as con:
         total    = con.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
         avg_conf = con.execute("SELECT AVG(confidence) FROM cases").fetchone()[0]
@@ -148,7 +146,7 @@ def save_feedback(case_id: str, rating: int, comment: str = "") -> None:
         )
 
 
-def get_feedback(case_id: str) -> List[Dict]:
+def get_feedback(case_id: str) -> list[dict]:
     with _conn() as con:
         rows = con.execute(
             "SELECT rating, comment, created_at FROM feedback WHERE case_id = ? ORDER BY created_at",

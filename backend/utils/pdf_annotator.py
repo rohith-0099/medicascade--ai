@@ -1,7 +1,8 @@
+import re
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from html import escape
-import re
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -157,7 +158,7 @@ class PDFAnnotator:
             leading=11,
         )
 
-    def create_annotated_report(self, output_path: str, data: Dict[str, Any]) -> str:
+    def create_annotated_report(self, output_path: str, data: dict[str, Any]) -> str:
         doc = SimpleDocTemplate(
             output_path,
             pagesize=A4,
@@ -166,7 +167,7 @@ class PDFAnnotator:
             topMargin=15 * mm,
             bottomMargin=18 * mm,
         )
-        story: List[Any] = []
+        story: list[Any] = []
         self._header(story, data)
         self._patient_summary(story, data)
         self._urgent_red_flags(story, data)
@@ -225,7 +226,7 @@ class PDFAnnotator:
             data.append([self._cell(cell, cell_style or self.table_cell) for cell in row])
 
         table = Table(data, colWidths=list(col_widths), repeatRows=1, hAlign="LEFT")
-        styles: List[tuple] = [
+        styles: list[tuple] = [
             ("BACKGROUND", (0, 0), (-1, 0), header_bg),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -274,7 +275,7 @@ class PDFAnnotator:
 
     def _append_bullets(
         self,
-        story: List[Any],
+        story: list[Any],
         items: Iterable[Any],
         *,
         empty_text: str = "None documented.",
@@ -287,8 +288,8 @@ class PDFAnnotator:
         for item in clean_items:
             story.append(Paragraph(f"&bull; {safe(item)}", self.bullet))
 
-    def _clean_items(self, items: Iterable[Any]) -> List[str]:
-        cleaned: List[str] = []
+    def _clean_items(self, items: Iterable[Any]) -> list[str]:
+        cleaned: list[str] = []
         for item in items:
             text = _filter_api_error(self._stringify(item))
             text = re.sub(r"\s+", " ", text).strip(" ;,-")
@@ -302,7 +303,7 @@ class PDFAnnotator:
         if isinstance(value, str):
             return value.strip()
         if isinstance(value, dict):
-            ordered_bits: List[str] = []
+            ordered_bits: list[str] = []
             preferred_keys = [
                 "test",
                 "value",
@@ -382,7 +383,7 @@ class PDFAnnotator:
     # ------------------------------------------------------------------ #
     # Sections required by doctor-facing contract
     # ------------------------------------------------------------------ #
-    def _header(self, story: List[Any], data: Dict[str, Any]):
+    def _header(self, story: list[Any], data: dict[str, Any]):
         case_id = data.get("case_id", "unknown")
         story.append(Paragraph("MediCascade Clinical Report", self.title))
         story.append(
@@ -398,7 +399,7 @@ class PDFAnnotator:
         story.append(HRFlowable(width="100%", thickness=0.9, color=self.palette["line"]))
         story.append(Spacer(1, 6))
 
-    def _patient_summary(self, story: List[Any], data: Dict[str, Any]):
+    def _patient_summary(self, story: list[Any], data: dict[str, Any]):
         story.append(Paragraph("Patient Summary", self.h2))
         summary = data.get("patient_summary", {}) or {}
         demographics = summary.get("demographics", {}) or {}
@@ -435,7 +436,7 @@ class PDFAnnotator:
         story.append(Spacer(1, 4))
 
         story.append(Paragraph("Key Clinical Facts", self.h3))
-        fact_rows: List[List[str]] = []
+        fact_rows: list[list[str]] = []
         for fact in self._clean_items(key_facts)[:10]:
             if ":" in fact:
                 left, right = fact.split(":", 1)
@@ -454,7 +455,7 @@ class PDFAnnotator:
         else:
             story.append(self._para("No key clinical facts were available for this report.", self.body_tight))
 
-    def _urgent_red_flags(self, story: List[Any], data: Dict[str, Any]):
+    def _urgent_red_flags(self, story: list[Any], data: dict[str, Any]):
         story.append(Paragraph("Urgent Red Flags", self.h2))
         red_flags = self._clean_items(data.get("urgent_red_flags", []) or [])
         if not red_flags:
@@ -485,7 +486,7 @@ class PDFAnnotator:
             )
         )
 
-    def _primary_diagnosis(self, story: List[Any], data: Dict[str, Any]):
+    def _primary_diagnosis(self, story: list[Any], data: dict[str, Any]):
         story.append(Paragraph("Primary Diagnosis", self.h2))
         diagnosis = self._stringify(data.get("diagnosis", "Undetermined")) or "Undetermined"
         confidence = self._format_confidence(data.get("confidence", 0.0))
@@ -512,7 +513,7 @@ class PDFAnnotator:
         )
         story.append(card)
 
-    def _icd10_section(self, story: List[Any], data: Dict[str, Any]):
+    def _icd10_section(self, story: list[Any], data: dict[str, Any]):
         icd_code = self._stringify(data.get("icd10_code", ""))
         icd_desc = self._stringify(data.get("icd10_description", ""))
         if not icd_code or icd_code == "R69":
@@ -540,10 +541,10 @@ class PDFAnnotator:
             story.append(Spacer(1, 4))
             story.append(self._note_box(note, tone="amber"))
 
-    def _differentials(self, story: List[Any], data: Dict[str, Any]):
+    def _differentials(self, story: list[Any], data: dict[str, Any]):
         story.append(Paragraph("Differential Diagnoses", self.h2))
         differentials = data.get("secondary_diagnoses", []) or []
-        rows: List[List[str]] = []
+        rows: list[list[str]] = []
         for item in differentials[:8]:
             if isinstance(item, dict):
                 rows.append(
@@ -570,7 +571,7 @@ class PDFAnnotator:
             )
         )
 
-    def _drug_safety_section(self, story: List[Any], data: Dict[str, Any]):
+    def _drug_safety_section(self, story: list[Any], data: dict[str, Any]):
         ds = data.get("drug_safety", {}) or {}
         warnings = ds.get("warnings", []) or []
         interactions = ds.get("interactions", []) or []
@@ -611,14 +612,14 @@ class PDFAnnotator:
 
     def _drug_detail_table(
         self,
-        story: List[Any],
+        story: list[Any],
         title: str,
-        items: List[Dict[str, Any]],
+        items: list[dict[str, Any]],
         *,
         header_bg: colors.Color,
         detail_bg: colors.Color,
     ):
-        rows: List[List[str]] = []
+        rows: list[list[str]] = []
         for item in items[:6]:
             drug = self._stringify(item.get("drug", "")) or "Medication"
             detail = _filter_api_error(self._stringify(item.get("detail", "")))
@@ -642,10 +643,10 @@ class PDFAnnotator:
         )
         story.append(Spacer(1, 4))
 
-    def _evidence_links(self, story: List[Any], data: Dict[str, Any]):
+    def _evidence_links(self, story: list[Any], data: dict[str, Any]):
         story.append(Paragraph("Peer-Reviewed Evidence (PubMed / NICE / WHO)", self.h2))
         links = data.get("evidence_links", []) or []
-        rows: List[List[Paragraph]] = []
+        rows: list[list[Paragraph]] = []
         for item in links[:16]:
             source = self._stringify(item.get("source", "")) or "Source"
             source_url = self._stringify(item.get("url", ""))
@@ -698,13 +699,13 @@ class PDFAnnotator:
         )
         story.append(table)
 
-    def _layer1_findings(self, story: List[Any], data: Dict[str, Any]):
+    def _layer1_findings(self, story: list[Any], data: dict[str, Any]):
         story.append(Paragraph("Layer 1 Specialist Findings", self.h2))
         section = data.get("layer1_findings", {}) or {}
 
         candidates = section.get("candidate_diagnoses", []) or []
         story.append(Paragraph("Candidate Diagnoses", self.h3))
-        candidate_rows: List[List[str]] = []
+        candidate_rows: list[list[str]] = []
         for item in candidates[:8]:
             if not isinstance(item, dict):
                 continue
@@ -738,7 +739,7 @@ class PDFAnnotator:
 
         story.append(Spacer(1, 4))
         story.append(Paragraph("Abnormal Labs", self.h3))
-        lab_rows: List[List[str]] = []
+        lab_rows: list[list[str]] = []
         for lab in (section.get("abnormal_labs", []) or [])[:12]:
             if isinstance(lab, dict):
                 lab_rows.append(
@@ -764,7 +765,7 @@ class PDFAnnotator:
 
         story.append(Spacer(1, 4))
         story.append(Paragraph("Symptom Timeline", self.h3))
-        timeline_rows: List[List[str]] = []
+        timeline_rows: list[list[str]] = []
         for item in (section.get("symptom_timeline", []) or [])[:12]:
             if isinstance(item, dict):
                 timeline_rows.append(
@@ -797,7 +798,7 @@ class PDFAnnotator:
             max_items=12,
         )
 
-    def _layer2_validated(self, story: List[Any], data: Dict[str, Any]):
+    def _layer2_validated(self, story: list[Any], data: dict[str, Any]):
         story.append(Paragraph("Layer 2 Validated Conclusions", self.h2))
         section = data.get("layer2_validated", {}) or {}
         labels = [
@@ -812,10 +813,10 @@ class PDFAnnotator:
             self._append_bullets(story, section.get(key, []) or [], empty_text=empty_text, max_items=12)
             story.append(Spacer(1, 2))
 
-    def _data_flow_transparency(self, story: List[Any], data: Dict[str, Any]):
+    def _data_flow_transparency(self, story: list[Any], data: dict[str, Any]):
         story.append(Paragraph("Data Flow Transparency", self.h2))
         trace = data.get("data_flow_trace", []) or []
-        rows: List[List[str]] = []
+        rows: list[list[str]] = []
         for item in trace[:8]:
             rows.append(
                 [
@@ -839,7 +840,7 @@ class PDFAnnotator:
             )
         )
 
-    def _xai(self, story: List[Any], data: Dict[str, Any]):
+    def _xai(self, story: list[Any], data: dict[str, Any]):
         story.append(Paragraph("XAI Section (Why this diagnosis)", self.h2))
         reasoning = self._stringify(data.get("reasoning", "")).strip()
         if not reasoning:
@@ -879,7 +880,7 @@ class PDFAnnotator:
 
             story.append(self._para(cleaned, self.body))
 
-    def _next_steps(self, story: List[Any], data: Dict[str, Any]):
+    def _next_steps(self, story: list[Any], data: dict[str, Any]):
         story.append(Paragraph("Recommended Next Steps / Tests", self.h2))
         steps = data.get("recommendations", []) or []
         self._append_bullets(
@@ -889,7 +890,7 @@ class PDFAnnotator:
             max_items=12,
         )
 
-    def _critical_highlights(self, story: List[Any], data: Dict[str, Any]):
+    def _critical_highlights(self, story: list[Any], data: dict[str, Any]):
         story.append(Paragraph("Critical Data Highlights", self.h2))
         points = data.get("critical_points", []) or []
         if not points:
@@ -945,7 +946,7 @@ class PDFAnnotator:
             story.append(card)
             story.append(Spacer(1, 4))
 
-    def _footer(self, story: List[Any]):
+    def _footer(self, story: list[Any]):
         story.append(Spacer(1, 6))
         story.append(
             Paragraph(

@@ -1,20 +1,19 @@
+import logging
 import os
 import shutil
 import time
-import logging
-from datetime import datetime
-from pathlib import Path
-from uuid import uuid4
+from datetime import datetime, timezone
+
+from config import check_ollama_available, settings
+from database import get_case, get_case_history, get_stats, init_db, save_case, save_feedback
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-
-from config import check_ollama_available, settings
-from database import init_db, save_case, get_case_history, get_case, save_feedback, get_stats
 from utils.drug_checker import get_fda_rate_limit_remaining
-from utils.medical_screener import screen_medical_document
 from utils.icd_mapper import map_to_icd10
+from utils.medical_screener import screen_medical_document
+from utils.url_utils import format_url
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -23,7 +22,6 @@ from layers.layer0_pdf_processor import layer0_processor
 from layers.layer1_specialists import layer1_specialists
 from layers.layer2_validator import layer2_validator
 from layers.layer3_annotator import layer3_annotator
-from schemas import MriAnalyzeResponse
 
 app = FastAPI(
     title="MediCascade AI — Multi-Layer Clinical Intake",
@@ -65,7 +63,7 @@ async def root():
     return {
         "message": "MediCascade API running",
         "version": "3.0.0",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -86,7 +84,7 @@ async def health_check():
             "uploads": settings.UPLOAD_DIR,
             "cases": settings.CASE_DIR,
         },
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -100,24 +98,11 @@ async def diagnose(file: UploadFile = File(...)):
 
     upload_path = os.path.join(settings.UPLOAD_DIR, f"{int(start_time)}_{file.filename}")
 
-
-    def format_url(path: str) -> str:
-        if not path:
-            return ""
-        clean_path = path.replace("\\", "/")
-        # Serve generated files through /outputs mount
-        if clean_path.startswith("outputs/"):
-            return "/" + clean_path
-        marker = "/outputs/"
-        if marker in clean_path:
-            return clean_path[clean_path.index(marker):]
-        return "/" + clean_path
-
     try:
         with open(upload_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # ── Medical content screen ─────────────────────────────────────────
+        # Medical content screen
         # Fast Groq binary check before running the full 4-layer pipeline.
         # Gracefully skipped if Groq is offline or the API key is missing.
         is_medical, screen_reason = screen_medical_document(upload_path)
@@ -134,7 +119,6 @@ async def diagnose(file: UploadFile = File(...)):
                     "patient record, lab report, discharge summary, or prescription."
                 ),
             )
-        # ──────────────────────────────────────────────────────────────────
 
         # Layer 0 — deterministic intake
         layer0 = layer0_processor.process(upload_path)
@@ -264,120 +248,8 @@ async def diagnose(file: UploadFile = File(...)):
     except HTTPException:
         raise  # let FastAPI handle 422/404/etc. correctly — don't convert to 500
     except Exception as e:
-        print(f"[API ERROR] {e}")
-        raise HTTPException(status_code=500, detail=f"Processing error: {e}")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#                     MRI 3D TUMOR SEGMENTATION (nnU-Net)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _is_nifti_file(filename: str) -> bool:
-    lower = filename.lower()
-    return lower.endswith(".nii") or lower.endswith(".nii.gz")
-
-
-@app.post("/api/mri/analyze")
-async def analyze_mri(
-    t1: UploadFile = File(...),
-    t1ce: UploadFile = File(...),
-    t2: UploadFile = File(...),
-    flair: UploadFile = File(...),
-):
-    """
-    Upload 4 MRI modalities (NIfTI), run nnU-Net segmentation,
-    and return Plotly Mesh3d data for 3D brain + tumor visualization.
-    """
-    import nibabel as nib
-    import numpy as np
-
-    start_time = time.time()
-    request_id = f"{int(start_time)}_{uuid4().hex[:6]}"
-    upload_dir = Path(settings.UPLOAD_DIR) / "mri" / request_id
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    uploads = {"t1": t1, "t1ce": t1ce, "t2": t2, "flair": flair}
-    saved_paths: dict[str, Path] = {}
-
-    try:
-        # Save uploaded NIfTI files
-        for modality, upload in uploads.items():
-            filename = upload.filename or ""
-            if not _is_nifti_file(filename):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid file for {modality.upper()}. Only .nii or .nii.gz accepted.",
-                )
-            ext = ".nii.gz" if filename.lower().endswith(".nii.gz") else ".nii"
-            path = upload_dir / f"{modality}{ext}"
-            with path.open("wb") as buffer:
-                shutil.copyfileobj(upload.file, buffer)
-            saved_paths[modality] = path
-
-        # Load raw NIfTI volumes at full resolution
-        volumes = {}
-        spacing = (1.0, 1.0, 1.0)
-        vol_shape = None
-
-        for modality in ("t1", "t1ce", "t2", "flair"):
-            img = nib.load(str(saved_paths[modality]))
-            data = np.asarray(img.get_fdata(dtype=np.float32), dtype=np.float32)
-            if data.ndim != 3:
-                raise HTTPException(400, f"{modality.upper()} must be a 3D volume, got shape {data.shape}")
-            volumes[modality] = data
-
-            if vol_shape is None:
-                vol_shape = data.shape
-                spacing = tuple(float(s) for s in img.header.get_zooms()[:3])
-            elif data.shape != vol_shape:
-                raise HTTPException(400, f"Shape mismatch: {modality} is {data.shape}, expected {vol_shape}")
-
-        logger.info(f"Loaded 4 modalities at full resolution {vol_shape}, spacing={spacing}")
-
-        # Run nnU-Net segmentation
-        from mri.predictor import get_predictor
-        predictor = get_predictor()
-        prediction = predictor.predict(
-            t1=volumes["t1"],
-            t1ce=volumes["t1ce"],
-            t2=volumes["t2"],
-            flair=volumes["flair"],
-            spacing=spacing,
-        )
-        segmentation = prediction["segmentation"]
-
-        logger.info(f"Segmentation labels: {np.unique(segmentation)}")
-
-        # Generate Plotly meshes from raw FLAIR + segmentation
-        from mri.mesh_generator import generate_meshes, compute_stats
-        meshes = generate_meshes(
-            flair_raw=volumes["flair"],
-            segmentation=segmentation,
-            spacing=spacing,
-        )
-        stats = compute_stats(segmentation=segmentation, spacing=spacing)
-
-        processing_time = time.time() - start_time
-        logger.info(f"MRI analysis complete in {processing_time:.1f}s")
-
-        return {
-            "request_id": request_id,
-            "meshes": meshes,
-            "stats": stats,
-            "processing_time": round(processing_time, 2),
-            "inference_time_seconds": prediction["inference_time_seconds"],
-            "performance_note": prediction["performance_note"],
-            "volume_shape": list(vol_shape),
-            "voxel_spacing": list(spacing),
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"MRI analysis error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"MRI processing error: {e}")
-    finally:
-        shutil.rmtree(upload_dir, ignore_errors=True)
+        logger.error(f"[API ERROR] {e}")
+        raise HTTPException(status_code=500, detail=f"Processing error: {e}") from e
 
 
 @app.get("/api/report/{case_id}")
@@ -389,7 +261,7 @@ async def get_report(case_id: str):
 
 
 @app.get("/api/case/{case_id}")
-async def get_case(case_id: str):
+async def get_case_json(case_id: str):
     case_path = os.path.join(settings.CASE_DIR, case_id, "case.json")
     if not os.path.exists(case_path):
         raise HTTPException(status_code=404, detail="Case not found")
@@ -434,9 +306,6 @@ async def fhir_export(case_id: str):
     row = get_case(case_id)
     if not row:
         raise HTTPException(status_code=404, detail="Case not found.")
-
-    import json as _json
-    l2 = _json.loads(row.get("layer2_json") or "{}") if row.get("layer2_json") else {}
 
     fhir = {
         "resourceType": "DiagnosticReport",

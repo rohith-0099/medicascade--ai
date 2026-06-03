@@ -1,5 +1,5 @@
+import logging
 import os
-from typing import Dict, List
 
 from config import settings
 from schemas import (
@@ -10,8 +10,10 @@ from schemas import (
     FinalDiagnosis,
     Layer1Findings,
 )
-from utils.pdf_annotator import pdf_annotator
 from utils.icd_mapper import get_icd10_for_differential, map_to_icd10
+from utils.pdf_annotator import pdf_annotator
+
+logger = logging.getLogger(__name__)
 
 try:
     from groq import Groq
@@ -30,7 +32,7 @@ class Layer3Annotator:
             try:
                 self.groq_client = Groq(api_key=settings.GROQ_API_KEY)
             except Exception as e:
-                print(f"[Layer 3] Groq client init failed, narrative fallback enabled: {e}")
+                logger.info(f"[Layer 3] Groq client init failed, narrative fallback enabled: {e}")
 
     def process(self, case: CaseDocument, layer1: Layer1Findings, final: FinalAssessment) -> AnnotatedReport:
         explanation = self._narrate(final, layer1)
@@ -86,8 +88,8 @@ class Layer3Annotator:
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
-    def _build_evidence(self, final: FinalAssessment) -> List[Evidence]:
-        items: List[Evidence] = []
+    def _build_evidence(self, final: FinalAssessment) -> list[Evidence]:
+        items: list[Evidence] = []
         for ev in final.evidence_pack:
             text = f"{ev.source}: {ev.snippet}".strip()
             items.append(
@@ -109,8 +111,8 @@ class Layer3Annotator:
             )
         return items[:30]
 
-    def _critical_points_from_highlights(self, final: FinalAssessment) -> List[Dict[str, str]]:
-        points: List[Dict[str, str]] = []
+    def _critical_points_from_highlights(self, final: FinalAssessment) -> list[dict[str, str]]:
+        points: list[dict[str, str]] = []
         for p in final.highlight_targets[:12]:
             points.append(
                 {
@@ -184,7 +186,7 @@ class Layer3Annotator:
             text = resp.choices[0].message.content or ""
             return text.strip() if text.strip() else fallback
         except Exception as e:
-            print(f"[Layer 3] Narrative generation failed: {e}")
+            logger.info(f"[Layer 3] Narrative generation failed: {e}")
             return fallback
 
     def _build_rule_based_narrative(self, final: FinalAssessment, layer1: Layer1Findings) -> str:
@@ -234,7 +236,7 @@ class Layer3Annotator:
         ]
         return "\n".join(sections).strip()
 
-    def _recommended_next_steps(self, final: FinalAssessment) -> List[str]:
+    def _recommended_next_steps(self, final: FinalAssessment) -> list[str]:
         steps = [
             "Review urgent red flags immediately.",
             "Correlate highlighted values with bedside clinical assessment.",
@@ -251,7 +253,7 @@ class Layer3Annotator:
                 steps.append("REVIEW: Potential drug-drug interactions flagged — consult pharmacist.")
         return steps[:10]
 
-    def _extract_drug_safety(self, layer1: Layer1Findings) -> Dict:
+    def _extract_drug_safety(self, layer1: Layer1Findings) -> dict:
         """Pull FDA drug safety data from the medication specialist view."""
         for view in layer1.views:
             if view.agent == "medication":
@@ -270,7 +272,7 @@ class Layer3Annotator:
         final: FinalAssessment,
         dx: FinalDiagnosis,
         explanation: str,
-        evidence: List[Evidence],
+        evidence: list[Evidence],
     ) -> str:
         case_dir = os.path.join(settings.CASE_DIR, case.case_id)
         os.makedirs(case_dir, exist_ok=True)
@@ -359,7 +361,7 @@ class Layer3Annotator:
         try:
             pdf_annotator.create_annotated_report(output_path, pdf_data)
         except Exception as e:
-            print(f"[Layer 3] PDF generation error: {e}")
+            logger.info(f"[Layer 3] PDF generation error: {e}")
             return ""
         return output_path
 

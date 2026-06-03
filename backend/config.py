@@ -1,7 +1,8 @@
 import os
 import subprocess
-from pydantic_settings import BaseSettings
+
 from pydantic import ConfigDict
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -10,7 +11,7 @@ class Settings(BaseSettings):
     Values are read from the environment or backend/.env (see .env.example).
     """
 
-    # ── External providers ──────────────────────────────────────────────────
+    # External providers
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     OPENROUTER_VALIDATOR_MODEL: str = "meta-llama/llama-3.3-70b-instruct:free"
@@ -28,20 +29,20 @@ class Settings(BaseSettings):
     HF_SYMPTOM_MODEL: str = "google/medgemma-4b-it"
     HF_RISK_LM_MODEL: str = "google/medgemma-4b-it"
 
-    # ── Storage / I-O ───────────────────────────────────────────────────────
+    # Storage / I-O
     MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024
     UPLOAD_DIR: str = "uploads"
     OUTPUT_DIR: str = "outputs"
     CASE_DIR: str = "outputs/cases"
 
-    # ── Ollama local fallback (requires manual Ollama setup) ─────────────────
+    # Ollama local fallback (requires manual Ollama setup)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2"
 
-    # ── Database ────────────────────────────────────────────────────────────
+    # Database
     DB_PATH: str = "outputs/medicascade.db"
 
-    # ── Runtime knobs ───────────────────────────────────────────────────────
+    # Runtime knobs
     LOG_LEVEL: str = "INFO"
     LAYER1_TIMEOUT: int = 90
     LAYER2_TIMEOUT: int = 120
