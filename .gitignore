@@ -55,9 +55,17 @@ backend/nnunet_model/Dataset002_BRATS19/
 backend/kagglemodel/
 
 # Environment files (all variants)
+.env
 .env.*
-!.env.example
+/.env.example
 backend/.env
 backend/.env.*
 !backend/.env.example
 .aider*
+
+# Local-only docs and tooling (not part of the published project)
+/CLAUDE.md
+/KNOWN_LIMITATIONS.md
+/setup.sh
+backend/mri/
+backend/nnunet_model/

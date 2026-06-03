@@ -1,109 +1,83 @@
-# MediCascade AI
-> "From Black-Box to Glass-Box" - a multi-layer clinical decision support pipeline for transparent, evidence-backed medical AI outputs.
+# MediCascade
 
-## Overview
-MediCascade AI processes a patient PDF through four layers:
+![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Tests](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)
+![Lint](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)
 
-1. Layer 0 intake extracts structured facts, provenance, and embedded images.
-2. Layer 1 runs 7 specialist agents in parallel.
-3. Layer 2 validates the candidate diagnoses against external evidence.
-4. Layer 3 generates a clinician-facing report with explanations, ICD-10 coding, and safety notes.
+A four-layer pipeline that turns an unstructured patient PDF into an explainable,
+evidence-linked clinical summary. Every conclusion traces back to a source page
+and to real published evidence — a glass box, not a black box.
 
-The goal is not to hide uncertainty. The system now explicitly reports when a capability is unavailable, when deterministic fallbacks were used, and where manual review is still required.
+> Research and educational prototype. Not a medical device.
 
-## Layer Breakdown
+![Architecture](assets/image/architecture_diagram.png)
 
-### Layer 0 - Multimodal Intake
-- PDF extraction for notes, labs, vitals, medications, history, and embedded images
-- Provenance tracking for auditable downstream highlights
+## Highlights
 
-### Layer 1 - Specialist Agents
-The system has 7 specialist agents:
+- **Multi-stage AI pipeline** — six specialist agents run in parallel, then a
+  validation layer classifies each finding as supported / uncertain / contradicted.
+- **Evidence-grounded** — claims are backed by live PubMed abstracts and FDA
+  drug-safety records, not invented citations.
+- **Full provenance** — Layer 0 extraction is deterministic and maps every fact
+  to the page it came from, so output is auditable.
+- **Production hygiene** — typed Pydantic models, pytest suite, Ruff linting, and
+  GitHub Actions CI on every push.
 
-| Agent | Purpose | Runtime / Model |
-| :--- | :--- | :--- |
-| `notes` | Symptom timeline and clinician impressions | Groq text model with OpenRouter/Ollama/deterministic fallback |
-| `labs` | Abnormal lab interpretation and patterns | Groq text model with OpenRouter/Ollama/deterministic fallback |
-| `medication` | Medication extraction, allergies, FDA safety checks | Groq text model + OpenFDA safety enrichment |
-| `history_genetics` | Comorbidities, family history, inherited risk | Groq/OpenRouter/Ollama/deterministic fallback |
-| `risk` | Risk stratification and prognosis | Groq/OpenRouter/Ollama/deterministic fallback |
-| `exposure` | Occupational and environmental exposures | Groq/OpenRouter/Ollama/deterministic fallback |
-| `imaging` | Radiology-style scan review | Requires `HF_API_TOKEN` for actual image analysis. Falls back to text-only mode without it. |
+## Architecture
 
-### Layer 2 - Evidence Validator
-- Consolidates the 7 agent outputs
-- Retrieves lightweight evidence from PubMed, NICE, and WHO
-- Falls back deterministically if external model providers are unavailable
+Four sequential layers. Layer 0 is deterministic; later layers use language
+models constrained by the structured facts and external evidence passed forward.
 
-### Layer 3 - Explainable Report
-- Annotated PDF report
-- ICD-10 mapping with manual-review disclaimer when unmatched
-- FDA drug safety section when medication warnings are available
+| Layer | Role |
+|-------|------|
+| **0 — Intake** | Extract text/tables/images from the PDF, classify sections, build a provenance map. No AI. |
+| **1 — Specialists** | Parallel agents (notes, labs, medication, history, exposure, risk) propose diagnoses, red flags and risk factors. |
+| **2 — Validator** | Classify findings and attach real evidence from PubMed and OpenFDA. |
+| **3 — Reporting** | Generate the doctor-facing PDF: explainable narrative, evidence links, ICD-10 coding, critical-value highlights. |
 
-## Technology Stack
+## Tech stack
 
-| Component | Tech Choices |
-| :--- | :--- |
-| Backend | Python 3.10+ (developed and tested on Python 3.12), FastAPI, Uvicorn |
-| Frontend | React, Vite, TailwindCSS |
-| LLM Providers | Groq, OpenRouter, Ollama |
-| Vision Model | Hugging Face MedGemma (`google/medgemma-4b-it`) |
-| PDF / Reporting | PyPDF2, pdfplumber, ReportLab |
-| MRI | nnU-Net v2, nibabel, scikit-image, PyTorch |
+- **Backend** — Python, FastAPI, Pydantic, SQLite
+- **Frontend** — React, Vite, Tailwind CSS
+- **Document/NLP** — pdfplumber, Tesseract OCR, spaCy
+- **AI** — LLM specialists via Groq; PubMed eUtils + OpenFDA for evidence;
+  optional PyTorch 3D U-Net for brain-MRI segmentation
 
-## Getting Started
+## Run it
 
-### Prerequisites
-- Node.js and npm
-- Python 3.10+ (developed and tested on Python 3.12)
-- Tesseract OCR (`sudo apt install tesseract-ocr poppler-utils`)
-- Optional: Groq/OpenRouter API keys for online model access
-- Optional: `HF_API_TOKEN` for actual imaging analysis with MedGemma
-- Optional: Ollama for local fallback
-
-### Installation
 ```bash
-git clone https://github.com/your-username/medicascade-ai.git
-cd medicascade-ai
+# System packages (Debian/Ubuntu)
+sudo apt-get install -y tesseract-ocr poppler-utils
 
+# Backend
 cd backend
-python -m venv venv
-source venv/bin/activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
+python -m spacy download en_core_web_sm
+cp .env.example .env          # add GROQ_API_KEY (+ OPENROUTER_API_KEY)
+uvicorn main:app --reload --port 8000
 
-cd ../frontend
-npm install
+# Frontend (separate terminal)
+cd frontend
+npm install && npm run dev    # http://localhost:5173
 ```
 
-### Run the App
+## Tests & CI
+
 ```bash
 cd backend
-./venv/bin/uvicorn main:app --reload
+pip install -r requirements-dev.txt
+ruff check ..    # lint
+pytest           # unit + smoke tests
 ```
 
-```bash
-cd frontend
-npm run dev
-```
-
-Open `http://localhost:5173`.
-
-## Offline Fallback
-Ollama fallback requires manual installation: https://ollama.ai - run `ollama pull llama3.2` before going offline. Without Ollama, the system uses built-in deterministic heuristics as final fallback and will never return empty results.
-
-## MRI Performance
-The MRI path uses single-fold inference with mirroring disabled. This is a theoretical ~40x fewer forward passes vs full 5-fold + 8-orientation ensemble. Actual inference time varies by hardware (typically 1-5 minutes on consumer GPU, 5-15 minutes on CPU).
+Unit tests run with no API keys; pipeline smoke tests skip when heavy
+dependencies are absent. Both backend (lint + test) and frontend (build) lanes
+run on every push — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Limitations
-- Local ICD-10 lookup covers ~130 common diagnoses. Uncommon conditions return `Z03.89` (unclassified) and require manual coding.
-- Imaging agent requires `HF_API_TOKEN` for actual vision analysis.
-- Ollama fallback requires manual installation and model download.
-- FDA rate limit is 40 requests/minute; the backend now throttles and retries under parallel load.
-- MRI speedup claims are theoretical; actual time depends on hardware.
-- FHIR export is JSON-formatted and not schema-validated.
 
-See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for the concise project limitations list.
-
-## Disclaimer
-This project is a research prototype and not a certified medical device. Always require clinician review before using any output for diagnosis or treatment decisions.
+The ICD-10 lookup covers common diagnoses, confidence scores are model-reported
+rather than clinically calibrated, and the FHIR export is not schema-validated.
