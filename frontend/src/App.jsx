@@ -1,6 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
-
-const MriTumorView = lazy(() => import('./components/MriTumorView'))
+import { useEffect, useRef, useState } from 'react'
 
 const PIPELINE = [
   { id: '0', label: 'L0', title: 'Intake', detail: 'PDF parse & provenance map' },
@@ -10,36 +8,36 @@ const PIPELINE = [
 ]
 
 const THINK_STAGES = [
-  { key: 'l0_1', layer: 'Layer 0', title: 'Opening PDF and indexing pages', ms: 1800 },
-  { key: 'l0_2', layer: 'Layer 0', title: 'Extracting demographics, labs, vitals', ms: 2200 },
-  { key: 'l0_3', layer: 'Layer 0', title: 'Building provenance map (page + span)', ms: 1800 },
-  { key: 'l1_1', layer: 'Layer 1', title: 'Notes specialist — LLaMA 3.3 70B', ms: 1800 },
-  { key: 'l1_2', layer: 'Layer 1', title: 'Lab specialist — Mixtral 8×7B MoE', ms: 1800 },
-  { key: 'l1_3', layer: 'Layer 1', title: 'History/genetics — Gemma 2 9B', ms: 2000 },
-  { key: 'l1_4', layer: 'Layer 1', title: 'Risk stratification — LLaMA 3 70B', ms: 1600 },
-  { key: 'l1_5', layer: 'Layer 1', title: 'Merging 7-specialist candidate diagnoses', ms: 1400 },
-  { key: 'l2_1', layer: 'Layer 2', title: 'Fetching real PubMed abstracts (NIH eUtils)', ms: 2200 },
-  { key: 'l2_2', layer: 'Layer 2', title: 'Checking FDA drug safety database', ms: 1800 },
-  { key: 'l2_3', layer: 'Layer 2', title: 'Validating supported / contradicted claims', ms: 2600 },
-  { key: 'l3_1', layer: 'Layer 3', title: 'Generating XAI narrative with source links', ms: 2200 },
-  { key: 'l3_2', layer: 'Layer 3', title: 'Annotating critical highlights in PDF', ms: 2000 },
-  { key: 'l3_3', layer: 'Layer 3', title: 'Assembling final doctor report', ms: 1400 },
+  { key: 'l0_1', layer: 'Layer 0', title: 'Reading patient document and indexing pages', ms: 1800 },
+  { key: 'l0_2', layer: 'Layer 0', title: 'Extracting demographics, labs, vitals, medications', ms: 2200 },
+  { key: 'l0_3', layer: 'Layer 0', title: 'Mapping every value back to its source page', ms: 1800 },
+  { key: 'l1_1', layer: 'Layer 1', title: 'Analysing clinical notes and presenting symptoms', ms: 1800 },
+  { key: 'l1_2', layer: 'Layer 1', title: 'Interpreting laboratory results', ms: 1800 },
+  { key: 'l1_3', layer: 'Layer 1', title: 'Reviewing history and genetic risk factors', ms: 2000 },
+  { key: 'l1_4', layer: 'Layer 1', title: 'Screening medications for safety concerns', ms: 1600 },
+  { key: 'l1_5', layer: 'Layer 1', title: 'Consolidating candidate diagnoses', ms: 1400 },
+  { key: 'l2_1', layer: 'Layer 2', title: 'Retrieving supporting PubMed literature', ms: 2200 },
+  { key: 'l2_2', layer: 'Layer 2', title: 'Cross-checking the FDA drug safety database', ms: 1800 },
+  { key: 'l2_3', layer: 'Layer 2', title: 'Validating supported vs. contradicted findings', ms: 2600 },
+  { key: 'l3_1', layer: 'Layer 3', title: 'Composing the explainable narrative with citations', ms: 2200 },
+  { key: 'l3_2', layer: 'Layer 3', title: 'Highlighting critical values for review', ms: 2000 },
+  { key: 'l3_3', layer: 'Layer 3', title: 'Finalising the annotated clinician report', ms: 1400 },
 ]
 
 const TOTAL_STAGE_MS = THINK_STAGES.reduce((acc, s) => acc + s.ms, 0)
 
+// Curated editorial palette — muted, cohesive, no neon
 const AGENT_COLORS = {
-  notes: '#00d4ff',
-  labs: '#7c3aed',
-  medication: '#f59e0b',
-  history_genetics: '#00d4a0',
-  exposure: '#ff4d6a',
-  risk: '#a78bfa',
-  imaging: '#5ee8ff',
+  notes: '#c8341f',
+  labs: '#25624a',
+  medication: '#9a6411',
+  history_genetics: '#2f4d72',
+  exposure: '#7a3b6b',
+  risk: '#8c5a2b',
+  imaging: '#2b6b6b',
 }
 
 export default function App() {
-  const [viewMode, setViewMode] = useState('clinical')
   const [file, setFile] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -119,7 +117,6 @@ export default function App() {
     const form = new FormData()
     form.append('file', file)
 
-
     setLoading(true); setError(''); setResult(null)
     startProcessingAnimation()
 
@@ -154,32 +151,24 @@ export default function App() {
 
   const reportDownloadUrl = result?.case_id ? `/api/report/${result.case_id}` : (result?.artifacts?.report_pdf || '')
   const confidence = Math.round((result?.confidence || 0) * 100)
-
-  if (viewMode === 'mri') {
-    return (
-      <Suspense fallback={
-        <div style={{ minHeight: '100vh', background: 'var(--bg-base)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', gap: 12 }}>
-          <div className="pulse-dot" />Initializing MRI workspace...
-        </div>
-      }>
-        <MriTumorView onBack={() => setViewMode('clinical')} />
-      </Suspense>
-    )
-  }
+  const confColor = confidence >= 75 ? 'var(--ok)' : confidence >= 50 ? 'var(--warn)' : 'var(--crit)'
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg-base)' }}>
-      {/* Sidebar */}
-      <aside className="sidebar" style={{ width: 248 }}>
-        <div className="sidebar-logo">
-          <LogoIcon size={34} />
+    <div className="app-shell">
+      {/* Instrument rail */}
+      <aside className="rail">
+        <div className="rail-mark">
+          <LogoIcon size={38} />
           <div>
-            <div className="sidebar-title">MediCascade AI</div>
-            <div className="sidebar-subtitle">v2.0 · Clinical Intelligence</div>
+            <div className="rail-word">Medi<em>Cascade</em></div>
+            <div className="rail-tag">Clinical Intelligence · v2.0</div>
           </div>
         </div>
-        <hr className="sidebar-divider" />
-        <div className="sidebar-section" style={{ marginBottom: 12 }}>4-Layer Pipeline</div>
+
+        <hr className="rail-rule" />
+
+        <div className="rail-eyebrow"><span>Cascade Pipeline</span><span>04</span></div>
+
         {PIPELINE.map((p, i) => {
           let isActive = false
           let isPast = false
@@ -188,203 +177,151 @@ export default function App() {
             else if (i === 1 && stageIndex >= 3 && stageIndex < 8) isActive = true
             else if (i === 2 && stageIndex >= 8 && stageIndex < 11) isActive = true
             else if (i === 3 && stageIndex >= 11) isActive = true
-            
+
             if (i === 0 && stageIndex >= 3) isPast = true
             if (i === 1 && stageIndex >= 8) isPast = true
             if (i === 2 && stageIndex >= 11) isPast = true
           } else if (result) {
             isPast = true
-          } else {
-            if (i === 0) isActive = true
+          } else if (i === 0) {
+            isActive = true
           }
 
-          const highlight = isActive ? 'var(--accent)' : isPast ? 'var(--text-secondary)' : 'var(--text-muted)'
-          const bgColor = isActive ? 'rgba(0,188,212,0.05)' : 'transparent'
-          const leftBorderColor = isActive ? 'var(--accent)' : 'transparent'
-
+          const cls = `stage${isActive ? ' is-active' : ''}${isPast ? ' is-past' : ''}`
           return (
-            <div
-              key={p.id}
-              style={{
-                marginBottom: 2,
-                borderLeft: `3px solid ${leftBorderColor}`,
-                padding: '10px 12px 10px 9px',
-                background: bgColor,
-                transition: 'all 0.2s',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: 10,
-                  fontWeight: 600,
-                  color: highlight,
-                  background: isActive ? 'rgba(0,188,212,0.1)' : 'rgba(255,255,255,0.05)',
-                  padding: '2px 6px',
-                  borderRadius: 4,
-                }}>{p.id + 1}</span>
-                <span style={{ color: isActive || isPast ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: 13, fontWeight: isActive ? 600 : 500 }}>{p.title}</span>
-              </div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 4, paddingLeft: 34 }}>{p.detail}</div>
+            <div key={p.id} className={cls}>
+              <div className="stage-num">{isPast && !isActive ? '✓' : i + 1}</div>
+              <div className="stage-title">{p.title}</div>
+              <div className="stage-detail">{p.detail}</div>
             </div>
           )
         })}
 
-{/* 
-        <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 14 }}>
-          <div className="sidebar-section">Viewers</div>
-          <div className="sidebar-item" onClick={() => setViewMode('mri')} style={{ cursor: 'pointer' }}>
-            <span style={{ color: 'var(--accent)' }}>&#9672;</span>
-            <span>3D Brain MRI Viewer</span>
-          </div>
+        <hr className="rail-rule thin" />
+        <div className="rail-foot">
+          XAI · EVIDENCE-LED<br />
+          PubMed eUtils · OpenFDA<br />
+          ICD-10-CM · FHIR R4
         </div>
-        */}
       </aside>
 
-      {/* Main Content */}
-      <main style={{ flex: 1, padding: '28px 34px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {/* Canvas */}
+      <main className="canvas">
 
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+        {/* Masthead */}
+        <header className="masthead fade-up d1">
           <div>
-            <h1 className="page-title" style={{ fontSize: 24, marginBottom: 4, color: '#e2e8f0', background: 'none', WebkitTextFillColor: 'initial', fontWeight: 600 }}>Clinical Decision Support</h1>
-            <p className="mono" style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-              4-layer cascade · XAI · Evidence-validated
-            </p>
+            <div className="kicker">Decision Support Engine</div>
+            <h1 className="display-xl">Clinical <em>Cascade</em></h1>
+            <div className="masthead-meta">4-layer pipeline / explainable / evidence-validated</div>
           </div>
-          {result && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <span style={{ padding: '4px 12px', borderRadius: 99, background: 'var(--success-bg)', color: 'var(--success)', fontSize: 11, fontWeight: 700, border: '1px solid rgba(0,212,160,0.25)', fontFamily: 'monospace' }}>
-                ● ANALYSIS COMPLETE
-              </span>
-            </div>
-          )}
-          {loading && (
-            <span style={{ padding: '4px 12px', borderRadius: 99, background: 'var(--accent-dim)', color: 'var(--accent)', fontSize: 11, fontWeight: 700, border: '1px solid var(--border-strong)', fontFamily: 'monospace' }}>
-              ◉ PROCESSING {progress}%
-            </span>
-          )}
-        </div>
+          {result && !loading && <span className="pill pill-done">● Analysis Complete</span>}
+          {loading && <span className="pill pill-live">◉ Processing {progress}%</span>}
+        </header>
 
-        {/* Upload Card */}
-        <div className="glass-card" style={{ padding: 20 }}>
-          <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 14, fontFamily: 'monospace' }}>
-            ▸ Input Data
-          </div>
-          <div>
-            {/* PDF Drop Zone */}
-            <div
-              className={`upload-zone ${file ? 'has-file' : ''}`}
-              onClick={() => pdfRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('drag-over') }}
-              onDragLeave={(e) => { e.currentTarget.classList.remove('drag-over') }}
-              onDrop={(e) => {
-                e.preventDefault()
-                e.currentTarget.classList.remove('drag-over')
-                const f = e.dataTransfer.files?.[0]
-                if (f?.type === 'application/pdf') setFile(f)
-              }}
-            >
-              <input ref={pdfRef} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={(e) => setFile(e.target.files?.[0] || null)} />
-              
-              <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                  <polyline points="14 2 14 8 20 8"></polyline>
-                  <line x1="16" y1="13" x2="8" y2="13"></line>
-                  <line x1="16" y1="17" x2="8" y2="17"></line>
-                  <polyline points="10 9 9 9 8 9"></polyline>
-                </svg>
-              </div>
+        {/* Upload sheet */}
+        <section className="sheet fade-up d2" style={{ marginTop: 24 }}>
+          <div className="sheet-eyebrow">Input Specimen</div>
 
-              {!file ? (
-                <>
-                  <div style={{ color: '#94a3b8', fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
-                    Drop patient PDF here
-                  </div>
-                  <div style={{ color: '#475569', fontSize: 12 }}>
-                    Supports text-based and scanned PDFs
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div style={{ color: 'var(--accent)', fontWeight: 600, fontSize: 15 }}>
-                    {file.name}
-                  </div>
-                  <div className="mono" style={{ color: 'var(--text-muted)', marginTop: 6, fontSize: 11 }}>
-                    {pdfPages} page{pdfPages !== 1 ? 's' : ''} detected · {(file.size / 1024).toFixed(0)} KB
-                  </div>
-                </>
-              )}
+          <div
+            className={`drop ${file ? 'has-file' : ''}`}
+            onClick={() => pdfRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('drag-over') }}
+            onDragLeave={(e) => { e.currentTarget.classList.remove('drag-over') }}
+            onDrop={(e) => {
+              e.preventDefault()
+              e.currentTarget.classList.remove('drag-over')
+              const f = e.dataTransfer.files?.[0]
+              if (f?.type === 'application/pdf') setFile(f)
+            }}
+          >
+            <input ref={pdfRef} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={(e) => setFile(e.target.files?.[0] || null)} />
+
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={file ? 'var(--ok)' : 'var(--ink-faint)'} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
             </div>
 
+            {!file ? (
+              <>
+                <div className="drop-lead">Drop the patient PDF here</div>
+                <div className="drop-sub">text-based or scanned · OCR-ready</div>
+              </>
+            ) : (
+              <>
+                <div className="drop-lead" style={{ color: 'var(--ok)' }}>{file.name}</div>
+                <div className="drop-sub">{pdfPages} page{pdfPages !== 1 ? 's' : ''} detected · {(file.size / 1024).toFixed(0)} KB</div>
+              </>
+            )}
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
               {loading ? (
                 <>
-                  <div className="pulse-dot" />
-                  <span style={{ color: 'var(--accent)', fontSize: 13, fontFamily: 'monospace' }}>Running cascade... {progress}%</span>
+                  <div className="dot" />
+                  <span className="mono" style={{ color: 'var(--accent)', fontSize: 12 }}>Running cascade… {progress}%</span>
                 </>
               ) : (
-                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                <span className="mono" style={{ color: 'var(--ink-faint)', fontSize: 12 }}>
                   {file ? '● Ready to analyze' : '○ Awaiting input'}
                 </span>
               )}
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn-secondary" onClick={resetAll}>Reset</button>
-              <button className="btn-primary" disabled={!file || loading} onClick={upload}>
-                {loading ? '◉ Running...' : '▶ Generate Report'}
+              <button className="btn btn-ghost" onClick={resetAll}>Reset</button>
+              <button className="btn btn-key" disabled={!file || loading} onClick={upload}>
+                {loading ? '◉ Running' : '▶ Generate Report'}
               </button>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Loading / Live AI Transparency */}
+        {/* Processing transparency */}
         {loading && (
-          <div className="glass-card fade-in" style={{ padding: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <div className="pulse-dot" />
-              <span style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: 14 }}>Live AI Transparency</span>
-              <span style={{ color: 'var(--text-muted)', fontSize: 12, fontFamily: 'monospace', marginLeft: 'auto' }}>{progress}% complete</span>
+          <section className="sheet fade-up" style={{ marginTop: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <div className="dot" />
+              <span style={{ fontFamily: 'var(--display)', fontWeight: 600, fontSize: 18 }}>Live AI Transparency</span>
+              <span className="mono" style={{ color: 'var(--ink-faint)', fontSize: 12, marginLeft: 'auto' }}>{progress}% complete</span>
             </div>
 
-            {/* Progress bar */}
-            <div className="progress-track" style={{ marginBottom: 16 }}>
-              <div className="progress-fill" style={{ width: `${progress}%` }} />
+            <div className="track" style={{ marginBottom: 18 }}>
+              <span style={{ width: `${progress}%` }} />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 16 }}>
               {/* Stage list */}
-              <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, maxHeight: 380, overflowY: 'auto' }}>
+              <div style={{ border: '1px solid var(--rule)', borderRadius: 3, padding: 14, maxHeight: 380, overflowY: 'auto' }}>
                 {THINK_STAGES.map((stage, idx) => {
                   const done = idx < stageIndex
                   const active = idx === stageIndex
                   return (
-                    <div key={stage.key} style={{ display: 'flex', gap: 10, marginBottom: 8, opacity: done || active ? 1 : 0.35, transition: 'opacity 0.3s' }}>
+                    <div key={stage.key} style={{ display: 'flex', gap: 11, marginBottom: 9, opacity: done || active ? 1 : 0.4, transition: 'opacity .3s' }}>
                       <div style={{
-                        width: 10, height: 10, marginTop: 4, borderRadius: '50%', flexShrink: 0,
-                        background: done ? 'var(--success)' : active ? 'var(--accent)' : 'var(--text-muted)',
-                        boxShadow: active ? '0 0 10px rgba(0,212,255,0.7)' : done ? '0 0 6px rgba(0,212,160,0.5)' : 'none',
+                        width: 9, height: 9, marginTop: 5, borderRadius: '50%', flexShrink: 0,
+                        background: done ? 'var(--ok)' : active ? 'var(--accent)' : 'var(--rule-strong)',
+                        boxShadow: active ? '0 0 0 3px var(--accent-wash)' : 'none',
                       }} />
                       <div>
-                        <span style={{
-                          fontSize: 10, fontWeight: 700, fontFamily: 'monospace',
-                          color: done ? 'var(--success)' : active ? 'var(--accent)' : 'var(--text-muted)',
-                          marginRight: 6,
-                        }}>{stage.layer.replace('Layer ', 'L')}</span>
-                        <span style={{ color: done || active ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: 12 }}>{stage.title}</span>
+                        <span className="mono" style={{ fontSize: 10, fontWeight: 700, marginRight: 7, color: done ? 'var(--ok)' : active ? 'var(--accent)' : 'var(--ink-faint)' }}>
+                          {stage.layer.replace('Layer ', 'L')}
+                        </span>
+                        <span style={{ fontSize: 13.5, color: done || active ? 'var(--ink)' : 'var(--ink-faint)' }}>{stage.title}</span>
                       </div>
                     </div>
                   )
                 })}
               </div>
 
-              {/* PDF preview */}
-              <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8, fontFamily: 'monospace' }}>
+              {/* PDF focus + tape */}
+              <div className="focus-frame" style={{ padding: 14 }}>
+                <div className="mono" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--ink-faint)', marginBottom: 9 }}>
                   AI Focus Window — Page {activePage}/{pdfPages}
                 </div>
                 {previewUrl ? (
@@ -392,59 +329,54 @@ export default function App() {
                     key={`${previewUrl}-${activePage}`}
                     src={`${previewUrl}#page=${activePage}&toolbar=0&navpanes=0&scrollbar=0`}
                     type="application/pdf"
-                    style={{ width: '100%', height: 270, borderRadius: 8, border: '1px solid var(--border)' }}
+                    style={{ width: '100%', height: 270, borderRadius: 3, border: '1px solid var(--rule-strong)' }}
                   />
                 ) : (
-                  <div className="warning-box">PDF preview appears after file upload.</div>
+                  <div className="box box-warn">PDF preview appears after file upload.</div>
                 )}
-                <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-                  <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6, fontFamily: 'monospace' }}>Live Log</div>
-                  {thinkingLog.slice(-5).map((line, i) => (
-                    <div key={i} style={{ color: i === thinkingLog.slice(-5).length - 1 ? 'var(--accent)' : 'var(--text-muted)', fontSize: 11, marginBottom: 3, fontFamily: 'monospace' }}>
-                      {line}
-                    </div>
-                  ))}
+                <div style={{ marginTop: 12 }}>
+                  <div className="mono" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--ink-faint)', marginBottom: 7 }}>Live Log</div>
+                  <div className="tape">
+                    {thinkingLog.slice(-5).map((line, i, arr) => (
+                      <div key={i} className={`tape-line${i === arr.length - 1 ? ' cur' : ''}`}>{line}</div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </section>
         )}
 
-        {error && <div className="error-box">{error}</div>}
+        {error && <div className="box box-crit fade-up" style={{ marginTop: 18 }}>{error}</div>}
 
         {/* Results */}
         {result && !loading && (
-          <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18, marginTop: 18 }}>
 
-            {/* Key metrics */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 12 }}>
+            {/* Diagnosis hero */}
+            <div className="dx-hero fade-up d1">
+              <div className="kicker" style={{ marginBottom: 0 }}>Primary Diagnosis</div>
+              <div className="dx-name">{result.primary_diagnosis || 'Undetermined'}</div>
+            </div>
+
+            {/* Ledger */}
+            <div className="ledger fade-up d2">
               {[
                 { label: 'Case ID', value: result.case_id, mono: true },
-                { label: 'Primary Diagnosis', value: result.primary_diagnosis || 'Undetermined', accent: true },
-                { label: 'Confidence', value: `${confidence}%`, color: confidence >= 75 ? 'var(--success)' : confidence >= 50 ? 'var(--warning)' : 'var(--danger)' },
+                { label: 'Confidence', value: `${confidence}%`, color: confColor, meter: true },
                 { label: 'Processing Time', value: `${(result.processing_time || result.total_processing_time || 0).toFixed(1)}s`, mono: true },
                 { label: 'Evidence Items', value: result.evidence_items_count || result.evidence_count || 0 },
                 { label: 'Specialist Views', value: result.specialist_views_count || (result.layer1_views || []).length },
+                { label: 'ICD-10-CM', value: result.icd10_code || '—', mono: true, accent: true },
               ].map((m) => (
-                <div key={m.label} className="stat-card" style={{ padding: '14px 16px', textAlign: 'left' }}>
-                  <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'monospace', marginBottom: 6 }}>{m.label}</div>
-                  <div style={{
-                    color: m.color || (m.accent ? 'var(--accent)' : 'var(--text-primary)'),
-                    fontWeight: 800,
-                    fontSize: m.mono ? 14 : 18,
-                    fontFamily: m.mono ? 'monospace' : 'inherit',
-                    wordBreak: 'break-word',
-                  }}>
+                <div key={m.label} className="cell">
+                  <div className="cell-k">{m.label}</div>
+                  <div className={`cell-v${m.mono ? ' mono-v' : ''}${m.accent ? ' accent-v' : ''}`} style={m.color ? { color: m.color } : undefined}>
                     {String(m.value)}
                   </div>
-                  {m.label === 'Confidence' && (
-                    <div style={{ marginTop: 8 }}>
-                      <div className="confidence-bar-track">
-                        <div className="confidence-bar-fill" style={{
-                          width: `${confidence}%`,
-                          background: confidence >= 75 ? 'linear-gradient(90deg, var(--success), #00f5c0)' : confidence >= 50 ? 'linear-gradient(90deg, var(--warning), #fcd34d)' : 'linear-gradient(90deg, var(--danger), #ff8096)',
-                        }} />
-                      </div>
+                  {m.meter && (
+                    <div className="meter">
+                      <span style={{ width: `${confidence}%`, background: confColor }} />
                     </div>
                   )}
                 </div>
@@ -452,39 +384,31 @@ export default function App() {
             </div>
 
             {result.fallback_used && (
-              <div style={{
-                border: '1px solid rgba(245, 158, 11, 0.35)',
-                borderRadius: 12,
-                padding: '12px 16px',
-                background: 'rgba(245, 158, 11, 0.08)',
-                color: 'var(--text-primary)',
-              }}>
-                <div style={{ color: 'var(--warning)', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', fontFamily: 'monospace', marginBottom: 6 }}>
+              <div className="box box-warn fade-up">
+                <div className="mono" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--warn)', marginBottom: 6 }}>
                   Fallback Used
                 </div>
-                <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-                  {result.fallback_reason || 'A non-primary provider or deterministic heuristic fallback was used for part of this analysis.'}
-                </div>
+                {result.fallback_reason || 'A non-primary provider or deterministic heuristic fallback was used for part of this analysis.'}
               </div>
             )}
 
-            {/* ICD-10 + drug safety row */}
-            {(result.icd10_code || result.drug_safety?.warnings?.length) && (
-              <div style={{ display: 'grid', gridTemplateColumns: result.icd10_code && result.drug_safety?.warnings?.length ? '1fr 1fr' : '1fr', gap: 12 }}>
-                {result.icd10_code && (
-                  <div style={{ border: '1px solid rgba(0,212,255,0.2)', borderRadius: 12, padding: '12px 16px', background: 'rgba(0,212,255,0.04)' }}>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'monospace', marginBottom: 6 }}>ICD-10-CM Code</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ color: 'var(--accent)', fontWeight: 800, fontSize: 18, fontFamily: 'monospace' }}>{result.icd10_code}</span>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{result.icd10_description}</span>
+            {/* ICD description + drug safety */}
+            {(result.icd10_description || result.drug_safety?.warnings?.length) && (
+              <div style={{ display: 'grid', gridTemplateColumns: result.icd10_description && result.drug_safety?.warnings?.length ? '1fr 1fr' : '1fr', gap: 14 }} className="fade-up">
+                {result.icd10_description && (
+                  <div className="chip">
+                    <div className="cell-k" style={{ marginBottom: 8 }}>ICD-10-CM Code</div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+                      <span className="chip-code">{result.icd10_code}</span>
+                      <span style={{ color: 'var(--ink-soft)', fontSize: 14 }}>{result.icd10_description}</span>
                     </div>
                   </div>
                 )}
                 {result.drug_safety?.warnings?.length > 0 && (
-                  <div style={{ border: '1px solid rgba(255,77,106,0.2)', borderRadius: 12, padding: '12px 16px', background: 'rgba(255,77,106,0.04)' }}>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'monospace', marginBottom: 6 }}>FDA Drug Warnings</div>
+                  <div className="chip crit">
+                    <div className="cell-k" style={{ marginBottom: 8, color: 'var(--crit)' }}>FDA Drug Warnings</div>
                     {result.drug_safety.warnings.slice(0, 2).map((w, i) => (
-                      <div key={i} style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 3 }}>⚠ {typeof w === 'string' ? w : `${w.drug}: ${w.detail}`}</div>
+                      <div key={i} style={{ color: 'var(--crit)', fontSize: 13.5, marginBottom: 4 }}>⚠ {typeof w === 'string' ? w : `${w.drug}: ${w.detail}`}</div>
                     ))}
                   </div>
                 )}
@@ -492,101 +416,82 @@ export default function App() {
             )}
 
             {/* Specialist views */}
-            <div className="glass-card" style={{ padding: 16 }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', fontFamily: 'monospace', marginBottom: 12 }}>▸ Layer 1 — Specialist AI Views</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 10 }}>
+            <section className="sheet fade-up">
+              <div className="sheet-eyebrow">Layer 1 — Specialist AI Views</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                 {(result.layer1_views || []).map((v) => {
                   const conf = Math.round((v.confidence || 0) * 100)
                   const accentColor = AGENT_COLORS[v.agent] || 'var(--accent)'
                   return (
-                    <div
-                      key={v.agent}
-                      style={{
-                        border: `1px solid ${accentColor}25`,
-                        borderLeft: `3px solid ${accentColor}`,
-                        borderRadius: 10,
-                        padding: 12,
-                        background: `${accentColor}08`,
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: 12 }}>{v.role || v.agent}</div>
-                        <div style={{ color: accentColor, fontSize: 12, fontWeight: 800, fontFamily: 'monospace' }}>{conf}%</div>
+                    <div key={v.agent} className="spec" style={{ '--c': accentColor }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                        <div className="spec-role">{v.role || v.agent}</div>
+                        <div className="spec-conf">{conf}%</div>
                       </div>
-                      <div style={{ height: 3, borderRadius: 99, background: 'rgba(255,255,255,0.06)', marginBottom: 8, overflow: 'hidden' }}>
-                        <div style={{ width: `${conf}%`, height: '100%', background: accentColor, borderRadius: 99, transition: 'width 0.8s ease', boxShadow: `0 0 6px ${accentColor}80` }} />
-                      </div>
+                      <div className="spec-bar"><span style={{ width: `${conf}%` }} /></div>
                       {summarizeFindings(v.findings).map((line, idx) => (
-                        <div key={idx} style={{ color: 'var(--text-secondary)', fontSize: 11, marginBottom: 3, lineHeight: 1.4 }}>{line}</div>
+                        <div key={idx} className="spec-line">{line}</div>
                       ))}
                     </div>
                   )
                 })}
               </div>
-            </div>
+            </section>
 
             {/* Data flow trace */}
             {(result.data_flow_trace || []).length > 0 && (
-              <div className="glass-card" style={{ padding: 16 }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', fontFamily: 'monospace', marginBottom: 12 }}>▸ Data Flow Trace</div>
+              <section className="sheet fade-up">
+                <div className="sheet-eyebrow">Data Flow Trace</div>
                 {(result.data_flow_trace || []).map((step, idx) => (
-                  <div key={idx} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, marginBottom: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <span style={{
-                        fontFamily: 'monospace', fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 4,
-                        background: step.layer?.includes('0') ? 'rgba(139,175,201,0.1)' : step.layer?.includes('1') ? 'var(--accent-dim)' : step.layer?.includes('2') ? 'var(--purple-dim)' : 'var(--success-bg)',
-                        color: step.layer?.includes('0') ? 'var(--text-secondary)' : step.layer?.includes('1') ? 'var(--accent)' : step.layer?.includes('2') ? 'var(--purple-light)' : 'var(--success)',
-                      }}>{step.layer}</span>
-                      <span style={{ color: 'var(--text-muted)', fontSize: 11, fontFamily: 'monospace' }}>{step.status}</span>
+                  <div key={idx} className="trace-row">
+                    <div>
+                      <div className="trace-tag">{step.layer}</div>
+                      <div className="mono" style={{ fontSize: 9.5, color: 'var(--ink-faint)', textAlign: 'center', marginTop: 5 }}>{step.status}</div>
                     </div>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}><span style={{ color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: 10 }}>IN → </span>{step.input}</div>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}><span style={{ color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: 10 }}>OUT → </span>{step.output}</div>
+                    <div className="trace-io">
+                      <div><b>IN →</b> {step.input}</div>
+                      <div><b>OUT →</b> {step.output}</div>
+                    </div>
                   </div>
                 ))}
-              </div>
+              </section>
             )}
 
-            {/* Download report */}
-            <div className="glass-card" style={{ padding: 20, border: '1px solid var(--border-strong)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            {/* Download */}
+            <section className="sheet fade-up" style={{ borderColor: 'var(--rule-ink)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
                 <div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', fontFamily: 'monospace', marginBottom: 6 }}>▸ Final Report</div>
-                  <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: 16 }}>Annotated Doctor Report — PDF</div>
-                  <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 4 }}>
-                    XAI explanations · Evidence links · ICD-10 coding · Critical highlights
+                  <div className="sheet-eyebrow" style={{ marginBottom: 8 }}>Final Report</div>
+                  <div style={{ fontFamily: 'var(--display)', fontWeight: 600, fontSize: 20 }}>Annotated Doctor Report — PDF</div>
+                  <div style={{ color: 'var(--ink-soft)', fontSize: 14, marginTop: 4 }}>
+                    XAI explanations · evidence links · ICD-10 coding · critical highlights
                   </div>
                 </div>
                 {reportDownloadUrl ? (
-                  <a className="btn-primary" href={reportDownloadUrl} target="_blank" rel="noreferrer" style={{ fontSize: 14 }}>
-                    ↓ Download PDF Report
-                  </a>
+                  <a className="btn btn-key" href={reportDownloadUrl} target="_blank" rel="noreferrer">↓ Download PDF</a>
                 ) : (
-                  <div className="warning-box" style={{ margin: 0 }}>PDF not yet available.</div>
+                  <div className="box box-warn" style={{ margin: 0 }}>PDF not yet available.</div>
                 )}
               </div>
-            </div>
+            </section>
           </div>
         )}
+
+        <footer className="disclaimer">
+          Research and educational prototype · not a medical device · not for clinical diagnosis or treatment decisions
+        </footer>
       </main>
     </div>
   )
 }
 
-/* ── Sub-components ──────────────────────────────────────── */
+/* Sub-components */
 
 function LogoIcon({ size = 32 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="lg1" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#00d4ff" />
-          <stop offset="1" stopColor="#7c3aed" />
-        </linearGradient>
-      </defs>
-      <rect width="36" height="36" rx="10" fill="url(#lg1)" />
-      <path d="M8 18 L14 10 L18 14 L22 8 L28 18" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <circle cx="18" cy="24" r="4" stroke="white" strokeWidth="1.8" fill="none" />
-      <circle cx="18" cy="24" r="1.5" fill="white" opacity="0.9" />
+      <rect x="0.6" y="0.6" width="34.8" height="34.8" rx="6" fill="#faf8f1" stroke="#18140d" strokeWidth="1.2" />
+      <path d="M6 20 L11 20 L13 13 L16 25 L19 9 L22 20 L30 20" stroke="#c8341f" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
     </svg>
   )
 }

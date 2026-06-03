@@ -18,20 +18,20 @@ class ErrorBoundary extends React.Component {
     if (this.state.hasError) {
       return (
         <div style={{
-          minHeight: '100vh', background: '#050b18', color: '#ff4d6a',
+          minHeight: '100vh', background: '#f2eee3', color: '#9c1d0b',
           display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', fontFamily: 'monospace', padding: 40, textAlign: 'center',
+          justifyContent: 'center', fontFamily: "'JetBrains Mono', monospace", padding: 40, textAlign: 'center',
         }}>
           <div style={{ fontSize: 40, marginBottom: 16 }}>⚠</div>
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12, color: '#e8f4ff' }}>Render Error</div>
-          <div style={{ maxWidth: 600, fontSize: 13, color: '#ff4d6a', marginBottom: 20, whiteSpace: 'pre-wrap' }}>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12, color: '#18140d' }}>Render Error</div>
+          <div style={{ maxWidth: 600, fontSize: 13, color: '#9c1d0b', marginBottom: 20, whiteSpace: 'pre-wrap' }}>
             {String(this.state.error)}
           </div>
           <button
             onClick={() => { this.setState({ hasError: false, error: null }) }}
             style={{
-              padding: '10px 24px', background: '#00d4ff', color: '#020b18',
-              border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer',
+              padding: '10px 24px', background: '#c8341f', color: '#fff',
+              border: '1px solid #a4250f', borderRadius: 2, fontWeight: 700, cursor: 'pointer',
             }}
           >
             Retry
