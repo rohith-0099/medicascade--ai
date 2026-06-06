@@ -1,0 +1,110 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FAFCFF"/>
+      <stop offset="1" stop-color="#F3F7FB"/>
+    </linearGradient>
+    <linearGradient id="blueBox" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#F6FBFF"/>
+      <stop offset="1" stop-color="#D8EBFF"/>
+    </linearGradient>
+    <linearGradient id="peachBox" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFF5EE"/>
+      <stop offset="1" stop-color="#FFD5BF"/>
+    </linearGradient>
+    <linearGradient id="greenBox" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#F5FFF7"/>
+      <stop offset="1" stop-color="#CCF2D7"/>
+    </linearGradient>
+    <linearGradient id="yellowBox" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFFDF4"/>
+      <stop offset="1" stop-color="#FFE4A8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#AEC4D6" flood-opacity="0.22"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7F8A96"/>
+    </marker>
+  </defs>
+
+  <rect width="1280" height="720" fill="url(#bg)"/>
+
+  <text x="640" y="82" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="700" fill="#4F87BE">ER DIAGRAM</text>
+  <text x="640" y="122" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="500" fill="#5E6772">MediCascade AI Clinical Decision Support Pipeline</text>
+
+  <g filter="url(#shadow)">
+    <rect x="520" y="150" rx="18" ry="18" width="240" height="88" fill="url(#blueBox)" stroke="#7DA8CC" stroke-width="2"/>
+    <text x="640" y="196" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="600" fill="#2C3947">Clinician</text>
+    <text x="640" y="221" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#516173">uploads / reviews</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="485" y="305" rx="18" ry="18" width="310" height="100" fill="url(#peachBox)" stroke="#E2A583" stroke-width="2"/>
+    <text x="640" y="350" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="600" fill="#2C3947">Case Document</text>
+    <text x="640" y="376" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#516173">PDF facts + provenance + raw text</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="130" y="298" rx="18" ry="18" width="255" height="96" fill="url(#blueBox)" stroke="#7DA8CC" stroke-width="2"/>
+    <text x="257.5" y="341" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="600" fill="#2C3947">Layer 1 Findings</text>
+    <text x="257.5" y="366" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#516173">7 specialist agent outputs</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="900" y="298" rx="18" ry="18" width="250" height="96" fill="url(#greenBox)" stroke="#83C198" stroke-width="2"/>
+    <text x="1025" y="341" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="600" fill="#2C3947">External Evidence</text>
+    <text x="1025" y="366" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#516173">PubMed / FDA / ICD-10</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="505" y="490" rx="18" ry="18" width="270" height="100" fill="url(#greenBox)" stroke="#83C198" stroke-width="2"/>
+    <text x="640" y="535" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="600" fill="#2C3947">Final Assessment</text>
+    <text x="640" y="560" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#516173">validated diagnosis + confidence</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="145" y="515" rx="18" ry="18" width="255" height="88" fill="url(#greenBox)" stroke="#83C198" stroke-width="2"/>
+    <text x="272.5" y="559" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="600" fill="#2C3947">Annotated Report</text>
+    <text x="272.5" y="583" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#516173">PDF + post-hoc XAI narrative</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="875" y="515" rx="18" ry="18" width="275" height="88" fill="url(#yellowBox)" stroke="#E0BE73" stroke-width="2"/>
+    <text x="1012.5" y="559" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="600" fill="#2C3947">Feedback &amp; Audit Log</text>
+    <text x="1012.5" y="583" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#516173">ratings, comments, case events</text>
+  </g>
+
+  <path d="M 640 238 C 640 260, 640 278, 640 305" stroke="#7F8A96" stroke-width="2.2" fill="none" marker-end="url(#arrow)"/>
+  <text x="665" y="272" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#555F69">uploads</text>
+
+  <path d="M 485 346 C 450 346, 425 346, 385 346" stroke="#7F8A96" stroke-width="2.2" fill="none" marker-end="url(#arrow)"/>
+  <text x="412" y="329" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#555F69">analyzes</text>
+
+  <path d="M 795 346 C 835 346, 860 346, 900 346" stroke="#7F8A96" stroke-width="2.2" fill="none" marker-end="url(#arrow)"/>
+  <text x="846" y="329" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#555F69">queries</text>
+
+  <path d="M 257 394 C 300 460, 420 510, 505 530" stroke="#7F8A96" stroke-width="2.2" fill="none" marker-end="url(#arrow)"/>
+  <text x="387" y="473" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#555F69">produces</text>
+
+  <path d="M 1025 394 C 985 460, 860 510, 775 530" stroke="#7F8A96" stroke-width="2.2" fill="none" marker-end="url(#arrow)"/>
+  <text x="892" y="473" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#555F69">validates</text>
+
+  <path d="M 640 405 C 640 438, 640 457, 640 490" stroke="#7F8A96" stroke-width="2.2" fill="none" marker-end="url(#arrow)"/>
+  <text x="685" y="455" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#555F69">summarizes</text>
+
+  <path d="M 505 545 C 460 547, 430 550, 400 555" stroke="#7F8A96" stroke-width="2.2" fill="none" marker-end="url(#arrow)"/>
+  <text x="447" y="529" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#555F69">generates</text>
+
+  <path d="M 775 545 C 810 545, 835 548, 875 555" stroke="#7F8A96" stroke-width="2.2" fill="none" marker-end="url(#arrow)"/>
+  <text x="827" y="529" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#555F69">stores</text>
+
+  <path d="M 760 188 C 900 200, 1010 300, 1012 515" stroke="#7F8A96" stroke-width="2.2" fill="none" marker-end="url(#arrow)"/>
+  <text x="932" y="236" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#555F69">submits</text>
+
+  <path d="M 520 188 C 345 205, 250 355, 272 515" stroke="#7F8A96" stroke-width="2.2" fill="none" marker-end="url(#arrow)"/>
+  <text x="356" y="232" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#555F69">reviews</text>
+
+  <path d="M 1010 515 C 995 460, 940 432, 795 382" stroke="#7F8A96" stroke-width="2.2" fill="none" marker-end="url(#arrow)"/>
+  <text x="938" y="445" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#555F69">tracks</text>
+</svg>
